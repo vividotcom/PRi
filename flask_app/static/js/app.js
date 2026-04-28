@@ -1511,7 +1511,7 @@ async function saveLostDays(prId) {
   }
 }
 
-/* ── TOAST ──────────────────────────────────────────────────────────────────���─ */
+/* ── TOAST ──────────────────────────────────────────────────────────────────�����─ */
 function showToast(message, type = "success") {
   const existing = document.querySelector(".toast-notification");
   if (existing) existing.remove();
@@ -1679,7 +1679,7 @@ async function deleteEvaluation() {
 async function switchPhase(phase) {
   currentPhase = phase;
   
-  // Update tabs
+  // Update tabs styling
   document.querySelectorAll(".eval-tab").forEach(tab => {
     if (tab.dataset.phase === phase) {
       tab.style.borderBottomColor = "#2196F3";
@@ -1691,13 +1691,13 @@ async function switchPhase(phase) {
   });
   
   // Update calculate button
-  const phaseLabelMap = { OI: "OI", OA1: "OA1", OA2: "OA2" };
-  document.getElementById("calculateBtn").textContent = `Évaluer ${phaseLabelMap[phase]}`;
+  const phaseLabelMap = { OI: "Évaluer OI", OA1: "Évaluer OA1", OA2: "Évaluer OA2" };
+  document.getElementById("calculateBtn").textContent = phaseLabelMap[phase];
   
-  // Hide results
+  // Hide results when switching
   document.getElementById("resultsSection").style.display = "none";
   
-  // Auto-populate companies from previous phase if no entries yet
+  // Auto-populate from previous phase if no entries exist yet
   const hasEntries = currentEvalData.entries[phase] && currentEvalData.entries[phase].length > 0;
   
   if (!hasEntries) {
@@ -1719,7 +1719,7 @@ async function switchPhase(phase) {
       }
       
       await loadEvaluation(currentEvalId);
-      return; // Will re-trigger switchPhase with loaded data
+      return;
     }
     
     if (phase === "OA2" && currentEvalData.oa1_results) {
@@ -1740,12 +1740,26 @@ async function switchPhase(phase) {
       }
       
       await loadEvaluation(currentEvalId);
-      return; // Will re-trigger switchPhase with loaded data
+      return;
     }
   }
   
   // Reload phase table
   renderPhaseTable();
+}
+
+async function moveToNextPhase() {
+  if (!currentEvalData) return;
+  
+  if (currentPhase === "OI") {
+    // Show OA1 tab and switch to it
+    document.getElementById("tabOA1").style.display = "block";
+    await switchPhase("OA1");
+  } else if (currentPhase === "OA1") {
+    // Show OA2 tab and switch to it
+    document.getElementById("tabOA2").style.display = "block";
+    await switchPhase("OA2");
+  }
 }
 
 async function renderPhaseTable() {
@@ -1998,8 +2012,18 @@ async function calculatePhase() {
       discardedDiv.innerHTML = '<div style="padding:12px;text-align:center;color:#999;font-style:italic">Aucune entreprise écartée</div>';
     }
     
-    // Show next phase button if not in OA2
-    nextPhaseContainer.style.display = (currentPhase !== "OA2") ? "block" : "none";
+    // Show next phase button if not in OA2 and update button text
+    if (currentPhase !== "OA2") {
+      nextPhaseContainer.style.display = "block";
+      const nextBtn = document.getElementById("nextPhaseBtn");
+      if (currentPhase === "OI") {
+        nextBtn.innerHTML = '<span class="glyphicon glyphicon-arrow-right"></span> Évaluer les OA1';
+      } else if (currentPhase === "OA1") {
+        nextBtn.innerHTML = '<span class="glyphicon glyphicon-arrow-right"></span> Évaluer les OA2';
+      }
+    } else {
+      nextPhaseContainer.style.display = "none";
+    }
     
     resultsSection.style.display = "block";
     
@@ -2013,15 +2037,6 @@ async function calculatePhase() {
     console.error("[v0] Error calculating phase:", err);
     showToast("Erreur lors du calcul", "error");
   }
-}
-
-function moveToNextPhase() {
-  const nextPhases = { OI: "OA1", OA1: "OA2" };
-  const nextPhase = nextPhases[currentPhase];
-  
-  if (!nextPhase) return;
-  
-  switchPhase(nextPhase);
 }
 
 async function exportEvaluation() {

@@ -330,7 +330,7 @@
   </div>
 </div>
 
-<!-- ═══════════════════ STEP EDIT MODAL ═════════════════════����════════════ -->
+<!-- ═══════════════════ STEP EDIT MODAL ═════════════════════�����════════════ -->
 <div id="stepEditModal" class="modal" style="display:none">
   <div class="modal-content" style="max-width:500px">
     <div class="modal-header">
@@ -521,11 +521,11 @@
           </button>
         </div>
         
-        <!-- Phase tabs -->
-        <div style="display:flex;gap:8px;border-bottom:2px solid var(--grey-300);margin-bottom:16px">
+        <!-- Phase tabs (dynamically shown) -->
+        <div id="phaseTabs" style="display:flex;gap:8px;border-bottom:2px solid var(--grey-300);margin-bottom:16px">
           <button class="eval-tab active" onclick="switchPhase('OI')" data-phase="OI" style="padding:10px 16px;border:none;background:none;cursor:pointer;border-bottom:3px solid #2196F3;font-weight:600;color:#2196F3">OI - Offres Initiales</button>
-          <button class="eval-tab" onclick="switchPhase('OA1')" data-phase="OA1" style="padding:10px 16px;border:none;background:none;cursor:pointer;border-bottom:3px solid transparent;font-weight:600;color:var(--grey-600)">OA1 - Offres Améliorées 1</button>
-          <button class="eval-tab" onclick="switchPhase('OA2')" data-phase="OA2" style="padding:10px 16px;border:none;background:none;cursor:pointer;border-bottom:3px solid transparent;font-weight:600;color:var(--grey-600)">OA2 - Offres Améliorées 2</button>
+          <button class="eval-tab" onclick="switchPhase('OA1')" data-phase="OA1" style="padding:10px 16px;border:none;background:none;cursor:pointer;border-bottom:3px solid transparent;font-weight:600;color:var(--grey-600);display:none" id="tabOA1">OA1 - Offres Améliorées 1</button>
+          <button class="eval-tab" onclick="switchPhase('OA2')" data-phase="OA2" style="padding:10px 16px;border:none;background:none;cursor:pointer;border-bottom:3px solid transparent;font-weight:600;color:var(--grey-600);display:none" id="tabOA2">OA2 - Offres Améliorées 2</button>
         </div>
         
         <!-- Phase content -->
@@ -598,8 +598,8 @@
             
             <!-- Next phase button -->
             <div id="nextPhaseContainer" style="display:none;padding:12px 16px;background:#FFF8F0;border-top:1px solid #E0E0E0">
-              <button onclick="moveToNextPhase()" style="padding:12px 16px;background:#FF9800;color:white;border:none;border-radius:4px;font-weight:600;cursor:pointer;width:100%;font-size:14px;display:flex;align-items:center;justify-content:center;gap:6px">
-                <span class="glyphicon glyphicon-arrow-right"></span> Continuer vers Phase Suivante
+              <button id="nextPhaseBtn" onclick="moveToNextPhase()" style="padding:12px 16px;background:#FF9800;color:white;border:none;border-radius:4px;font-weight:600;cursor:pointer;width:100%;font-size:14px;display:flex;align-items:center;justify-content:center;gap:6px">
+                <span class="glyphicon glyphicon-arrow-right"></span> Évaluer les OA1
               </button>
             </div>
           </div>
