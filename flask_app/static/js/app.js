@@ -1528,3 +1528,375 @@ function showToast(message, type = "success") {
     setTimeout(() => toast.remove(), 400);
   }, 3000);
 }
+
+/* ── FINANCIAL EVALUATIONS ──────────────────────────────────────────────────── */
+
+let currentEvalId = null;
+let currentPhase = "OI";
+let currentEvalData = null;
+
+// Initialize evaluations modal
+document.addEventListener("DOMContentLoaded", () => {
+  const btnEval = document.getElementById("btnEvaluations");
+  if (btnEval) {
+    btnEval.addEventListener("click", openEvaluationsModal);
+  }
+});
+
+async function openEvaluationsModal() {
+  const modal = document.getElementById("evaluationsModal");
+  modal.style.display = "flex";
+  modal.style.flexDirection = "column";
+  
+  // Load evaluations list
+  await loadEvaluationsList();
+}
+
+async function loadEvaluationsList() {
+  try {
+    const response = await fetch("/api/evaluations");
+    const evaluations = await response.json();
+    
+    const list = document.getElementById("evaluationsList");
+    if (evaluations.length === 0) {
+      list.innerHTML = '<div style="padding:16px;color:var(--grey-600);font-size:12px">Aucune évaluation pour le moment</div>';
+      return;
+    }
+    
+    list.innerHTML = evaluations.map(e => `
+      <button onclick="loadEvaluation('${e.id}')" style="width:100%;padding:10px;margin:4px 0;background:var(--grey-100);border:1px solid var(--grey-300);border-radius:4px;cursor:pointer;text-align:left;transition:all 0.2s">
+        <div style="font-weight:600;font-size:13px;color:var(--grey-900)">${escapeHtml(e.title)}</div>
+        <div style="font-size:11px;color:var(--grey-600)">${new Date(e.created_date).toLocaleDateString('fr-FR')}</div>
+        <div style="font-size:10px;color:#2196F3;margin-top:4px">Phase: ${e.current_phase}</div>
+      </button>
+    `).join('');
+  } catch (err) {
+    console.error("[v0] Error loading evaluations:", err);
+    showToast("Erreur lors du chargement", "error");
+  }
+}
+
+async function createNewEvaluation() {
+  const title = prompt("Titre de la nouvelle évaluation:");
+  if (!title || title.trim() === "") return;
+  
+  try {
+    const response = await fetch("/api/evaluations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title.trim() })
+    });
+    const result = await response.json();
+    currentEvalId = result.id;
+    currentPhase = "OI";
+    
+    await loadEvaluation(result.id);
+    await loadEvaluationsList();
+    showToast("Évaluation créée", "success");
+  } catch (err) {
+    console.error("[v0] Error creating evaluation:", err);
+    showToast("Erreur lors de la création", "error");
+  }
+}
+
+async function loadEvaluation(evalId) {
+  try {
+    const response = await fetch(`/api/evaluations/${evalId}`);
+    const data = await response.json();
+    
+    currentEvalId = evalId;
+    currentPhase = "OI";
+    currentEvalData = data;
+    
+    // Show editor
+    document.getElementById("evaluationEditor").style.display = "block";
+    document.getElementById("evalTitle").value = data.title;
+    
+    // Highlight selected eval in list
+    document.querySelectorAll("#evaluationsList button").forEach(btn => {
+      btn.style.background = "var(--grey-100)";
+      btn.style.borderColor = "var(--grey-300)";
+    });
+    const selectedBtn = Array.from(document.querySelectorAll("#evaluationsList button")).find(btn => 
+      btn.textContent.includes(data.title)
+    );
+    if (selectedBtn) {
+      selectedBtn.style.background = "#E3F2FD";
+      selectedBtn.style.borderColor = "#2196F3";
+    }
+    
+    // Load phase
+    switchPhase("OI");
+  } catch (err) {
+    console.error("[v0] Error loading evaluation:", err);
+    showToast("Erreur lors du chargement", "error");
+  }
+}
+
+async function saveEvalTitle() {
+  if (!currentEvalId) return;
+  
+  const title = document.getElementById("evalTitle").value.trim();
+  if (!title) {
+    showToast("Le titre ne peut pas être vide", "error");
+    return;
+  }
+  
+  try {
+    await fetch(`/api/evaluations/${currentEvalId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title })
+    });
+    
+    currentEvalData.title = title;
+    await loadEvaluationsList();
+    showToast("Titre mis à jour", "success");
+  } catch (err) {
+    console.error("[v0] Error saving title:", err);
+    showToast("Erreur lors de la sauvegarde", "error");
+  }
+}
+
+async function deleteEvaluation() {
+  if (!currentEvalId) return;
+  
+  if (!confirm("Êtes-vous sûr de vouloir supprimer cette évaluation ?")) return;
+  
+  try {
+    await fetch(`/api/evaluations/${currentEvalId}`, { method: "DELETE" });
+    currentEvalId = null;
+    currentEvalData = null;
+    document.getElementById("evaluationEditor").style.display = "none";
+    await loadEvaluationsList();
+    showToast("Évaluation supprimée", "success");
+  } catch (err) {
+    console.error("[v0] Error deleting evaluation:", err);
+    showToast("Erreur lors de la suppression", "error");
+  }
+}
+
+function switchPhase(phase) {
+  currentPhase = phase;
+  
+  // Update tabs
+  document.querySelectorAll(".eval-tab").forEach(tab => {
+    if (tab.dataset.phase === phase) {
+      tab.style.borderBottomColor = "#2196F3";
+      tab.style.color = "#2196F3";
+    } else {
+      tab.style.borderBottomColor = "transparent";
+      tab.style.color = "var(--grey-600)";
+    }
+  });
+  
+  // Update calculate button
+  const phaseLabelMap = { OI: "OI", OA1: "OA1", OA2: "OA2" };
+  document.getElementById("calculateBtn").textContent = `Évaluer ${phaseLabelMap[phase]}`;
+  
+  // Hide results
+  document.getElementById("resultsSection").style.display = "none";
+  
+  // Reload phase table
+  renderPhaseTable();
+}
+
+async function renderPhaseTable() {
+  if (!currentEvalData) return;
+  
+  const phaseEntries = currentEvalData.entries[currentPhase] || [];
+  const tableBody = document.getElementById("phaseTable");
+  
+  if (phaseEntries.length === 0) {
+    tableBody.innerHTML = '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--grey-600)">Aucune entreprise ajoutée</td></tr>';
+    return;
+  }
+  
+  const sorted = [...phaseEntries].sort((a, b) => a.amount - b.amount);
+  const cheapest = sorted[0]?.amount || 0;
+  
+  tableBody.innerHTML = sorted.map((entry, idx) => {
+    const gap = entry.amount === cheapest ? 0 : ((entry.amount - cheapest) / cheapest) * 100;
+    return `
+      <tr style="border-bottom:1px solid var(--grey-300)">
+        <td style="padding:10px;border:1px solid var(--grey-300)">${idx + 1}</td>
+        <td style="padding:10px;border:1px solid var(--grey-300)">
+          <input type="text" value="${escapeHtml(entry.company_name)}" class="form-input" style="width:100%;padding:6px" onchange="updateEntry('${entry.id}', 'company_name', this.value)">
+        </td>
+        <td style="padding:10px;border:1px solid var(--grey-300)">
+          <input type="number" value="${entry.amount}" class="form-input" style="width:100%;padding:6px" onchange="updateEntry('${entry.id}', 'amount', this.value)">
+        </td>
+        <td style="padding:10px;border:1px solid var(--grey-300);text-align:center">
+          <button onclick="deleteEntry('${entry.id}')" style="padding:4px 8px;background:#F44336;color:white;border:none;border-radius:3px;cursor:pointer;font-size:11px">
+            <span class="glyphicon glyphicon-trash"></span>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function addCompanyRow() {
+  if (!currentEvalId) return;
+  
+  const nameInput = document.getElementById("newCompanyName");
+  const amountInput = document.getElementById("newCompanyAmount");
+  
+  const company_name = nameInput.value.trim();
+  const amount = parseFloat(amountInput.value);
+  
+  if (!company_name || isNaN(amount) || amount < 0) {
+    showToast("Veuillez entrer un nom et un montant valide", "error");
+    return;
+  }
+  
+  try {
+    const response = await fetch(`/api/evaluations/${currentEvalId}/entries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phase: currentPhase,
+        company_name,
+        amount,
+        company_order: (currentEvalData.entries[currentPhase] || []).length + 1
+      })
+    });
+    
+    if (!response.ok) {
+      showToast("Erreur lors de l'ajout", "error");
+      return;
+    }
+    
+    // Reload evaluation
+    await loadEvaluation(currentEvalId);
+    nameInput.value = "";
+    amountInput.value = "";
+    showToast("Entreprise ajoutée", "success");
+  } catch (err) {
+    console.error("[v0] Error adding entry:", err);
+    showToast("Erreur lors de l'ajout", "error");
+  }
+}
+
+async function updateEntry(entryId, field, value) {
+  if (!currentEvalId) return;
+  
+  try {
+    await fetch(`/api/evaluations/${currentEvalId}/entries/${entryId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [field]: value })
+    });
+    
+    await loadEvaluation(currentEvalId);
+  } catch (err) {
+    console.error("[v0] Error updating entry:", err);
+    showToast("Erreur lors de la mise à jour", "error");
+  }
+}
+
+async function deleteEntry(entryId) {
+  if (!currentEvalId || !confirm("Supprimer cette entrée ?")) return;
+  
+  try {
+    await fetch(`/api/evaluations/${currentEvalId}/entries/${entryId}`, {
+      method: "DELETE"
+    });
+    
+    await loadEvaluation(currentEvalId);
+    showToast("Entrée supprimée", "success");
+  } catch (err) {
+    console.error("[v0] Error deleting entry:", err);
+    showToast("Erreur lors de la suppression", "error");
+  }
+}
+
+async function calculatePhase() {
+  if (!currentEvalId) return;
+  
+  const entries = currentEvalData.entries[currentPhase] || [];
+  if (entries.length === 0) {
+    showToast("Veuillez ajouter des entreprises", "error");
+    return;
+  }
+  
+  try {
+    const response = await fetch(`/api/evaluations/${currentEvalId}/calculate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phase: currentPhase })
+    });
+    
+    const results = await response.json();
+    
+    // Display results
+    const resultsSection = document.getElementById("resultsSection");
+    const keptDiv = document.getElementById("resultKept");
+    const discardedDiv = document.getElementById("resultDiscarded");
+    const nextPhaseContainer = document.getElementById("nextPhaseContainer");
+    
+    keptDiv.innerHTML = (results.kept || []).map(r =>
+      `<div style="padding:6px 0;border-bottom:1px solid var(--grey-300)">
+        <strong>${escapeHtml(r.company)}</strong> - ${r.amount.toFixed(2)} (écart: ${r.gap.toFixed(2)}%)
+      </div>`
+    ).join('');
+    
+    if (results.kept.length === 0) {
+      keptDiv.innerHTML = '<div style="padding:6px;color:var(--grey-600)">Aucune</div>';
+    }
+    
+    discardedDiv.innerHTML = (results.discarded || []).map(r =>
+      `<div style="padding:6px 0;border-bottom:1px solid var(--grey-300)">
+        <strong>${escapeHtml(r.company)}</strong> - ${r.amount.toFixed(2)} (écart: ${r.gap.toFixed(2)}%)
+      </div>`
+    ).join('');
+    
+    if (results.discarded.length === 0) {
+      discardedDiv.innerHTML = '<div style="padding:6px;color:var(--grey-600)">Aucune</div>';
+    }
+    
+    // Show next phase button if not in OA2
+    nextPhaseContainer.style.display = (currentPhase !== "OA2") ? "block" : "none";
+    
+    resultsSection.style.display = "block";
+    
+    // Reload data to get updated results
+    await loadEvaluation(currentEvalId);
+    showToast(`Évaluation ${currentPhase} effectuée`, "success");
+  } catch (err) {
+    console.error("[v0] Error calculating phase:", err);
+    showToast("Erreur lors du calcul", "error");
+  }
+}
+
+function moveToNextPhase() {
+  const nextPhases = { OI: "OA1", OA1: "OA2" };
+  const nextPhase = nextPhases[currentPhase];
+  
+  if (!nextPhase) return;
+  
+  switchPhase(nextPhase);
+}
+
+async function exportEvaluation() {
+  if (!currentEvalId) return;
+  
+  try {
+    const response = await fetch(`/api/evaluations/${currentEvalId}/export`);
+    const blob = await response.blob();
+    
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Evaluation_${currentEvalData.title || 'export'}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    
+    showToast("Fichier exporté", "success");
+  } catch (err) {
+    console.error("[v0] Error exporting:", err);
+    showToast("Erreur lors de l'export", "error");
+  }
+}

@@ -1,4 +1,4 @@
-﻿from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file
 import os
 import sqlite3
 import json
@@ -104,6 +104,35 @@ def init_db():
             done        INTEGER NOT NULL DEFAULT 0,
             sort_order  INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (pr_id) REFERENCES pr(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Financial evaluations table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS financial_evaluation (
+            id              TEXT PRIMARY KEY,
+            pr_id           TEXT DEFAULT NULL,
+            title           TEXT NOT NULL,
+            created_date    TEXT NOT NULL,
+            current_phase   TEXT NOT NULL DEFAULT 'OI',
+            oi_results      TEXT DEFAULT NULL,
+            oa1_results     TEXT DEFAULT NULL,
+            oa2_results     TEXT DEFAULT NULL,
+            FOREIGN KEY (pr_id) REFERENCES pr(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Evaluation entries table (company data for each phase)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS evaluation_entry (
+            id              TEXT PRIMARY KEY,
+            eval_id         TEXT NOT NULL,
+            phase           TEXT NOT NULL,
+            company_name    TEXT NOT NULL,
+            company_order   INTEGER NOT NULL,
+            amount          REAL NOT NULL,
+            notes           TEXT DEFAULT '',
+            FOREIGN KEY (eval_id) REFERENCES financial_evaluation(id) ON DELETE CASCADE
         )
     """)
     conn.commit()
@@ -1331,7 +1360,7 @@ def get_processing_limits():
     return jsonify(PROCESSING_LIMITS)
 
 
-# ── DOCUMENTS MANAGEMENT ──────────��───────────────────────────────────────────
+# ── DOCUMENTS MANAGEMENT ──────────���───────────────────────────────────────────
 
 @app.route("/api/documents", methods=["GET"])
 def get_documents():
@@ -1568,6 +1597,479 @@ def get_kpi_processing_delays():
     return jsonify(kpi_data)
 
 
+# ─── FINANCIAL EVALUATIONS ────────────────────────────────────────────────────────
+
+def calculate_oi_evaluation(entries):
+    """
+    OI (Offres Initiales) Evaluation Logic:
+    - Sort by price (ascending)
+    - Keep top 3 companies
+    - Include any 4th+ company if gap to 3rd < 15%
+    Returns: {results: [{rank, company, amount, gap, status}], kept: [], discarded: []}
+    """
+    if not entries:
+        return {"results": [], "kept": [], "discarded": []}
+    
+    sorted_entries = sorted(entries, key=lambda x: x["amount"])
+    cheapest = sorted_entries[0]["amount"]
+    results = []
+    
+    for i, entry in enumerate(sorted_entries[:4] if len(sorted_entries) >= 4 else sorted_entries):
+        gap = 0 if i == 0 else ((entry["amount"] - cheapest) / cheapest) * 100
+        status = "À relancer"
+        
+        # Keep top 3
+        if i < 3:
+            status = "À relancer"
+        # Keep 4th if gap < 15%
+        elif i == 3 and gap < 15:
+            status = "À relancer"
+        else:
+            status = "À écarter"
+        
+        results.append({
+            "rank": i + 1,
+            "company": entry["company_name"],
+            "amount": entry["amount"],
+            "gap": round(gap, 2),
+            "status": status
+        })
+    
+    kept = [r for r in results if r["status"] == "À relancer"]
+    discarded = [r for r in results if r["status"] == "À écarter"]
+    
+    return {"results": results, "kept": kept, "discarded": discarded}
+
+
+def calculate_oa1_evaluation(entries, oi_results):
+    """
+    OA1 (Offres Améliorées 1) Evaluation Logic:
+    - Keep cheapest from OA1
+    - ALWAYS include cheapest from OI even if gap > 5%
+    - Include any others with gap < 5% to cheapest OA1
+    Returns: {results: [...], kept: [], discarded: []}
+    """
+    if not entries:
+        return {"results": [], "kept": [], "discarded": []}
+    
+    sorted_entries = sorted(entries, key=lambda x: x["amount"])
+    cheapest_oa1 = sorted_entries[0]["amount"]
+    results = []
+    
+    # Find cheapest from OI
+    cheapest_oi_company = oi_results["kept"][0]["company"] if oi_results["kept"] else None
+    
+    for i, entry in enumerate(sorted_entries):
+        gap = 0 if i == 0 else ((entry["amount"] - cheapest_oa1) / cheapest_oa1) * 100
+        status = "À écarter"
+        
+        # Always keep cheapest in OA1
+        if i == 0:
+            status = "À relancer"
+        # Always keep cheapest from OI
+        elif entry["company_name"] == cheapest_oi_company:
+            status = "À relancer"
+        # Keep others with gap < 5%
+        elif gap < 5:
+            status = "À relancer"
+        
+        results.append({
+            "rank": i + 1,
+            "company": entry["company_name"],
+            "amount": entry["amount"],
+            "gap": round(gap, 2),
+            "status": status
+        })
+    
+    kept = [r for r in results if r["status"] == "À relancer"]
+    discarded = [r for r in results if r["status"] == "À écarter"]
+    
+    return {"results": results, "kept": kept, "discarded": discarded}
+
+
+def calculate_oa2_evaluation(entries, oa1_results):
+    """
+    OA2 (Offres Améliorées 2) Evaluation Logic:
+    - Keep only cheapest (final winner)
+    - If tie, both marked as final but cheapest shown as winner
+    Returns: {results: [...], kept: [...], winner: {...}}
+    """
+    if not entries:
+        return {"results": [], "kept": [], "winner": None}
+    
+    sorted_entries = sorted(entries, key=lambda x: x["amount"])
+    cheapest = sorted_entries[0]["amount"]
+    results = []
+    
+    for i, entry in enumerate(sorted_entries):
+        gap = 0 if i == 0 else ((entry["amount"] - cheapest) / cheapest) * 100
+        status = "À écarter"
+        
+        if entry["amount"] == cheapest:
+            status = "Relancer pour OA3 (FINAL moin disante)"
+        
+        results.append({
+            "rank": i + 1,
+            "company": entry["company_name"],
+            "amount": entry["amount"],
+            "gap": round(gap, 2),
+            "status": status
+        })
+    
+    winner = results[0] if results else None
+    kept = [r for r in results if r["amount"] == cheapest]
+    
+    return {"results": results, "kept": kept, "winner": winner}
+
+
+# ─── EVALUATION API ENDPOINTS ─────────────────────────────────────────────────────
+
+@app.route("/api/evaluations", methods=["GET"])
+def list_evaluations():
+    """List all financial evaluations."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, title, created_date, current_phase FROM financial_evaluation ORDER BY created_date DESC"
+    ).fetchall()
+    conn.close()
+    
+    return jsonify([dict(row) for row in rows])
+
+
+@app.route("/api/evaluations", methods=["POST"])
+def create_evaluation():
+    """Create a new financial evaluation."""
+    data = request.json or {}
+    title = data.get("title", "Sans titre").strip()
+    pr_id = data.get("pr_id")
+    
+    eval_id = str(uuid.uuid4())
+    created_date = datetime.now().isoformat()
+    
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO financial_evaluation (id, pr_id, title, created_date, current_phase) VALUES (?,?,?,?,?)",
+        (eval_id, pr_id, title, created_date, "OI")
+    )
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"id": eval_id, "title": title, "created_date": created_date, "current_phase": "OI"}), 201
+
+
+@app.route("/api/evaluations/<eval_id>", methods=["GET"])
+def get_evaluation(eval_id):
+    """Get a single evaluation with all entries and results."""
+    conn = get_db()
+    eval_row = conn.execute(
+        "SELECT * FROM financial_evaluation WHERE id = ?", (eval_id,)
+    ).fetchone()
+    
+    if not eval_row:
+        conn.close()
+        return jsonify({"error": "Évaluation introuvable"}), 404
+    
+    # Get all entries grouped by phase
+    entries = conn.execute(
+        "SELECT * FROM evaluation_entry WHERE eval_id = ? ORDER BY phase, company_order",
+        (eval_id,)
+    ).fetchall()
+    conn.close()
+    
+    eval_dict = dict(eval_row)
+    
+    # Parse results JSON if present
+    eval_dict["oi_results"] = json.loads(eval_dict["oi_results"]) if eval_dict["oi_results"] else None
+    eval_dict["oa1_results"] = json.loads(eval_dict["oa1_results"]) if eval_dict["oa1_results"] else None
+    eval_dict["oa2_results"] = json.loads(eval_dict["oa2_results"]) if eval_dict["oa2_results"] else None
+    
+    # Group entries by phase
+    entries_by_phase = {"OI": [], "OA1": [], "OA2": []}
+    for entry in entries:
+        phase = entry["phase"]
+        if phase in entries_by_phase:
+            entries_by_phase[phase].append(dict(entry))
+    
+    eval_dict["entries"] = entries_by_phase
+    return jsonify(eval_dict)
+
+
+@app.route("/api/evaluations/<eval_id>", methods=["PUT"])
+def update_evaluation(eval_id):
+    """Update evaluation title or current phase."""
+    data = request.json or {}
+    title = data.get("title", "").strip()
+    current_phase = data.get("current_phase")
+    
+    conn = get_db()
+    eval_row = conn.execute("SELECT id FROM financial_evaluation WHERE id = ?", (eval_id,)).fetchone()
+    
+    if not eval_row:
+        conn.close()
+        return jsonify({"error": "Évaluation introuvable"}), 404
+    
+    updates = []
+    params = []
+    
+    if title:
+        updates.append("title = ?")
+        params.append(title)
+    
+    if current_phase:
+        updates.append("current_phase = ?")
+        params.append(current_phase)
+    
+    if updates:
+        params.append(eval_id)
+        query = f"UPDATE financial_evaluation SET {', '.join(updates)} WHERE id = ?"
+        conn.execute(query, params)
+        conn.commit()
+    
+    conn.close()
+    return jsonify({"message": "Évaluation mise à jour"})
+
+
+@app.route("/api/evaluations/<eval_id>", methods=["DELETE"])
+def delete_evaluation(eval_id):
+    """Delete an evaluation and all its entries."""
+    conn = get_db()
+    conn.execute("DELETE FROM evaluation_entry WHERE eval_id = ?", (eval_id,))
+    conn.execute("DELETE FROM financial_evaluation WHERE id = ?", (eval_id,))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"message": "Évaluation supprimée"})
+
+
+@app.route("/api/evaluations/<eval_id>/entries", methods=["POST"])
+def add_entry(eval_id):
+    """Add a company entry to an evaluation phase."""
+    data = request.json or {}
+    phase = data.get("phase")
+    company_name = data.get("company_name", "").strip()
+    amount = data.get("amount", 0)
+    notes = data.get("notes", "")
+    company_order = data.get("company_order", 0)
+    
+    if not phase or not company_name:
+        return jsonify({"error": "Phase et nom de l'entreprise requis"}), 400
+    
+    try:
+        amount = float(amount)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Montant invalide"}), 400
+    
+    conn = get_db()
+    entry_id = str(uuid.uuid4())
+    
+    conn.execute(
+        "INSERT INTO evaluation_entry (id, eval_id, phase, company_name, company_order, amount, notes) VALUES (?,?,?,?,?,?,?)",
+        (entry_id, eval_id, phase, company_name, company_order, amount, notes)
+    )
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"id": entry_id, "message": "Entrée ajoutée"}), 201
+
+
+@app.route("/api/evaluations/<eval_id>/entries/<entry_id>", methods=["PUT"])
+def update_entry(eval_id, entry_id):
+    """Update an entry."""
+    data = request.json or {}
+    amount = data.get("amount")
+    notes = data.get("notes")
+    company_name = data.get("company_name")
+    
+    conn = get_db()
+    updates = []
+    params = []
+    
+    if company_name is not None:
+        updates.append("company_name = ?")
+        params.append(company_name)
+    
+    if amount is not None:
+        try:
+            amount = float(amount)
+            updates.append("amount = ?")
+            params.append(amount)
+        except (ValueError, TypeError):
+            conn.close()
+            return jsonify({"error": "Montant invalide"}), 400
+    
+    if notes is not None:
+        updates.append("notes = ?")
+        params.append(notes)
+    
+    if updates:
+        params.append(entry_id)
+        params.append(eval_id)
+        query = f"UPDATE evaluation_entry SET {', '.join(updates)} WHERE id = ? AND eval_id = ?"
+        conn.execute(query, params)
+        conn.commit()
+    
+    conn.close()
+    return jsonify({"message": "Entrée mise à jour"})
+
+
+@app.route("/api/evaluations/<eval_id>/entries/<entry_id>", methods=["DELETE"])
+def delete_entry(eval_id, entry_id):
+    """Delete an entry."""
+    conn = get_db()
+    conn.execute("DELETE FROM evaluation_entry WHERE id = ? AND eval_id = ?", (entry_id, eval_id))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"message": "Entrée supprimée"})
+
+
+@app.route("/api/evaluations/<eval_id>/calculate", methods=["POST"])
+def calculate_phase(eval_id):
+    """Calculate phase results based on current entries and update evaluation."""
+    data = request.json or {}
+    phase = data.get("phase")
+    
+    if phase not in ["OI", "OA1", "OA2"]:
+        return jsonify({"error": "Phase invalide"}), 400
+    
+    conn = get_db()
+    eval_row = conn.execute("SELECT * FROM financial_evaluation WHERE id = ?", (eval_id,)).fetchone()
+    
+    if not eval_row:
+        conn.close()
+        return jsonify({"error": "Évaluation introuvable"}), 404
+    
+    # Get entries for current phase
+    entries_rows = conn.execute(
+        "SELECT * FROM evaluation_entry WHERE eval_id = ? AND phase = ? ORDER BY company_order",
+        (eval_id, phase)
+    ).fetchall()
+    
+    entries = [dict(row) for row in entries_rows]
+    
+    # Calculate based on phase
+    if phase == "OI":
+        results = calculate_oi_evaluation(entries)
+    elif phase == "OA1":
+        # Need OI results for context
+        oi_results_json = eval_row["oi_results"]
+        oi_results = json.loads(oi_results_json) if oi_results_json else {"kept": []}
+        results = calculate_oa1_evaluation(entries, oi_results)
+    elif phase == "OA2":
+        # Need OA1 results for context
+        oa1_results_json = eval_row["oa1_results"]
+        oa1_results = json.loads(oa1_results_json) if oa1_results_json else {"kept": []}
+        results = calculate_oa2_evaluation(entries, oa1_results)
+    
+    # Update evaluation with results
+    results_json = json.dumps(results)
+    col_name = f"{phase.lower()}_results"
+    
+    conn.execute(
+        f"UPDATE financial_evaluation SET {col_name} = ?, current_phase = ? WHERE id = ?",
+        (results_json, phase, eval_id)
+    )
+    conn.commit()
+    conn.close()
+    
+    return jsonify(results)
+
+
+@app.route("/api/evaluations/<eval_id>/export", methods=["GET"])
+def export_evaluation(eval_id):
+    """Export evaluation to Excel with all phases."""
+    conn = get_db()
+    eval_row = conn.execute("SELECT * FROM financial_evaluation WHERE id = ?", (eval_id,)).fetchone()
+    
+    if not eval_row:
+        conn.close()
+        return jsonify({"error": "Évaluation introuvable"}), 404
+    
+    entries = conn.execute(
+        "SELECT * FROM evaluation_entry WHERE eval_id = ? ORDER BY phase, company_order",
+        (eval_id,)
+    ).fetchall()
+    conn.close()
+    
+    # Create workbook
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # Remove default sheet
+    
+    eval_dict = dict(eval_row)
+    title = eval_dict["title"]
+    phases = ["OI", "OA1", "OA2"]
+    
+    # Group entries by phase
+    entries_by_phase = {"OI": [], "OA1": [], "OA2": []}
+    for entry in entries:
+        phase = entry["phase"]
+        if phase in entries_by_phase:
+            entries_by_phase[phase].append(dict(entry))
+    
+    # Create sheet for each phase
+    for phase in phases:
+        ws = wb.create_sheet(title=f"{phase}")
+        
+        # Header
+        ws["A1"] = f"Évaluation: {title}"
+        ws["A2"] = f"Phase: {phase}"
+        
+        # Column headers
+        ws["A4"] = "N°"
+        ws["B4"] = "Entreprise"
+        ws["C4"] = "Montant"
+        ws["D4"] = "Écart %"
+        ws["E4"] = "Notes"
+        
+        # Data
+        row_num = 5
+        phase_entries = entries_by_phase[phase]
+        
+        for i, entry in enumerate(sorted(phase_entries, key=lambda x: x["amount"]), 1):
+            cheapest = min([e["amount"] for e in phase_entries]) if phase_entries else 0
+            gap = 0 if entry["amount"] == cheapest else ((entry["amount"] - cheapest) / cheapest) * 100
+            
+            ws[f"A{row_num}"] = i
+            ws[f"B{row_num}"] = entry["company_name"]
+            ws[f"C{row_num}"] = entry["amount"]
+            ws[f"D{row_num}"] = round(gap, 2)
+            ws[f"E{row_num}"] = entry.get("notes", "")
+            row_num += 1
+        
+        # Results section if available
+        results_col = f"{phase.lower()}_results"
+        if eval_dict[results_col]:
+            results = json.loads(eval_dict[results_col])
+            row_num += 2
+            ws[f"A{row_num}"] = "Classification"
+            row_num += 1
+            ws[f"A{row_num}"] = "À Relancer"
+            row_num += 1
+            for item in results.get("kept", []):
+                ws[f"A{row_num}"] = f"  • {item['company']} ({item['amount']:.2f})"
+                row_num += 1
+            
+            row_num += 1
+            ws[f"A{row_num}"] = "À Écarter"
+            row_num += 1
+            for item in results.get("discarded", []):
+                ws[f"A{row_num}"] = f"  • {item['company']} ({item['amount']:.2f})"
+                row_num += 1
+    
+    # Send file
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = f"Evaluation_{title}.xlsx"
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename
+    )
+
+
 # ── IMPORT EXCEL ──────────────────────────────────────────────────────────────
 
 @app.route("/api/import", methods=["POST"])
@@ -1693,6 +2195,29 @@ def create_empty_db():
             done       INTEGER NOT NULL DEFAULT 0,
             sort_order INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (pr_id) REFERENCES pr(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS financial_evaluation (
+            id              TEXT PRIMARY KEY,
+            pr_id           TEXT DEFAULT NULL,
+            title           TEXT NOT NULL,
+            created_date    TEXT NOT NULL,
+            current_phase   TEXT NOT NULL DEFAULT 'OI',
+            oi_results      TEXT DEFAULT NULL,
+            oa1_results     TEXT DEFAULT NULL,
+            oa2_results     TEXT DEFAULT NULL,
+            FOREIGN KEY (pr_id) REFERENCES pr(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS evaluation_entry (
+            id              TEXT PRIMARY KEY,
+            eval_id         TEXT NOT NULL,
+            phase           TEXT NOT NULL,
+            company_name    TEXT NOT NULL,
+            company_order   INTEGER NOT NULL,
+            amount          REAL NOT NULL,
+            notes           TEXT DEFAULT '',
+            FOREIGN KEY (eval_id) REFERENCES financial_evaluation(id) ON DELETE CASCADE
         );
     """)
     conn.commit()
