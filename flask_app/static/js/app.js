@@ -1511,7 +1511,7 @@ async function saveLostDays(prId) {
   }
 }
 
-/* ── TOAST ──────────────────────────────────────────────────────────────────── */
+/* ── TOAST ──────────────────────────────────────────────────────────────────���─ */
 function showToast(message, type = "success") {
   const existing = document.querySelector(".toast-notification");
   if (existing) existing.remove();
@@ -1899,17 +1899,15 @@ async function calculatePhase() {
     // Helper function to get reason why company is kept
     function getKeptReason(company, phaseResults, phase) {
       if (phase === "OI") {
-        // Top 3 or 4th with gap < 15%
         const idx = phaseResults.results.findIndex(r => r.company === company.company);
-        if (idx < 3) return "Top 3";
-        if (company.gap < 15) return `Écart < 15% (${company.gap.toFixed(1)}%)`;
+        if (idx < 3) return "Classé dans le Top 3";
+        return `Écart < 15% (${company.gap.toFixed(1)}%)`;
       } else if (phase === "OA1") {
-        if (company.gap === 0) return "Moins disante OA1";
-        if (company.gap > 0 && company.gap < 5) return `Écart < 5% (${company.gap.toFixed(1)}%)`;
-        // Check if this is OI cheapest
-        return "Maintenue d'OI (moins disante)";
+        if (company.gap === 0) return "Offre moins chère en OA1";
+        if (company.gap > 0 && company.gap < 5) return `Offre compétitive (écart: ${company.gap.toFixed(1)}%)`;
+        return "Maintenue depuis OI (prix référence)";
       } else if (phase === "OA2") {
-        return "Relancer pour OA3 (FINAL moins disante)";
+        return "Offre finale moins chère → OA3";
       }
       return "";
     }
@@ -1917,63 +1915,96 @@ async function calculatePhase() {
     // Helper function to get reason why company is discarded
     function getDiscardedReason(company, phaseResults, phase) {
       if (phase === "OI") {
-        return "Écart > 15% (classement 5+)";
+        return `Écart > 15% (${company.gap.toFixed(1)}%) - Non compétitive`;
       } else if (phase === "OA1") {
-        return `Écart > 5% (${company.gap.toFixed(1)}%) - Non compétitif`;
+        return `Écart > 5% (${company.gap.toFixed(1)}%) - Hors limites`;
       } else if (phase === "OA2") {
-        return "Non retenu (pas le prix minimum)";
+        return "Ne correspond pas au prix minimum";
       }
-      return "Écartée";
+      return "Non retenue";
     }
     
-    keptDiv.innerHTML = (results.kept || []).map(r => {
-      const reason = getKeptReason(r, results, currentPhase);
-      return `
-        <div style="padding:10px;margin:4px 0;background:#E8F5E9;border-left:4px solid #4CAF50;border-radius:3px">
-          <div style="display:flex;justify-content:space-between;align-items:start">
-            <div style="flex:1">
-              <strong style="color:#2E7D32">${escapeHtml(r.company)}</strong>
-              <div style="font-size:11px;color:#558B2F;margin-top:2px">${reason}</div>
-            </div>
-            <div style="text-align:right;margin-left:10px">
-              <div style="font-weight:600;color:#2E7D32">${r.amount.toFixed(2)}</div>
-              <div style="font-size:11px;color:#558B2F">écart: ${r.gap.toFixed(1)}%</div>
+    // Render kept companies
+    if (results.kept && results.kept.length > 0) {
+      keptDiv.innerHTML = (results.kept || []).map(r => {
+        const reason = getKeptReason(r, results, currentPhase);
+        return `
+          <div style="
+            padding:12px;
+            background:linear-gradient(135deg, #F1F8E9 0%, #E8F5E9 100%);
+            border:1px solid #81C784;
+            border-left:4px solid #4CAF50;
+            border-radius:4px;
+            box-shadow:0 1px 3px rgba(76, 175, 80, 0.1)
+          ">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+              <div style="flex:1;min-width:0">
+                <div style="
+                  font-weight:700;
+                  color:#2E7D32;
+                  font-size:13px;
+                  margin-bottom:4px;
+                  word-break:break-word
+                ">${escapeHtml(r.company)}</div>
+                <div style="font-size:12px;color:#558B2F;line-height:1.4">${reason}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0;white-space:nowrap">
+                <div style="font-weight:700;color:#2E7D32;font-size:13px">${r.amount.toFixed(2)} €</div>
+                <div style="font-size:11px;color:#7CB342;margin-top:2px">+${r.gap.toFixed(1)}%</div>
+              </div>
             </div>
           </div>
-        </div>
-      `;
-    }).join('');
-    
-    if (results.kept.length === 0) {
-      keptDiv.innerHTML = '<div style="padding:10px;color:var(--grey-600);background:var(--grey-50);border-radius:3px;text-align:center">Aucune</div>';
+        `;
+      }).join('');
+    } else {
+      keptDiv.innerHTML = '<div style="padding:12px;text-align:center;color:#999;font-style:italic">Aucune entreprise retenue</div>';
     }
     
-    discardedDiv.innerHTML = (results.discarded || []).map(r => {
-      const reason = getDiscardedReason(r, results, currentPhase);
-      return `
-        <div style="padding:10px;margin:4px 0;background:#FFEBEE;border-left:4px solid #F44336;border-radius:3px">
-          <div style="display:flex;justify-content:space-between;align-items:start">
-            <div style="flex:1">
-              <strong style="color:#C62828">${escapeHtml(r.company)}</strong>
-              <div style="font-size:11px;color:#D32F2F;margin-top:2px">${reason}</div>
-            </div>
-            <div style="text-align:right;margin-left:10px">
-              <div style="font-weight:600;color:#C62828">${r.amount.toFixed(2)}</div>
-              <div style="font-size:11px;color:#D32F2F">écart: ${r.gap.toFixed(1)}%</div>
+    // Render discarded companies
+    if (results.discarded && results.discarded.length > 0) {
+      discardedDiv.innerHTML = (results.discarded || []).map(r => {
+        const reason = getDiscardedReason(r, results, currentPhase);
+        return `
+          <div style="
+            padding:12px;
+            background:linear-gradient(135deg, #FFEBEE 0%, #FFCDD2 100%);
+            border:1px solid #EF5350;
+            border-left:4px solid #F44336;
+            border-radius:4px;
+            box-shadow:0 1px 3px rgba(244, 67, 54, 0.1)
+          ">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+              <div style="flex:1;min-width:0">
+                <div style="
+                  font-weight:700;
+                  color:#C62828;
+                  font-size:13px;
+                  margin-bottom:4px;
+                  word-break:break-word;
+                  text-decoration:line-through;
+                  opacity:0.85
+                ">${escapeHtml(r.company)}</div>
+                <div style="font-size:12px;color:#D32F2F;line-height:1.4">${reason}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0;white-space:nowrap">
+                <div style="font-weight:700;color:#C62828;font-size:13px">${r.amount.toFixed(2)} €</div>
+                <div style="font-size:11px;color:#E53935;margin-top:2px">+${r.gap.toFixed(1)}%</div>
+              </div>
             </div>
           </div>
-        </div>
-      `;
-    }).join('');
-    
-    if (results.discarded.length === 0) {
-      discardedDiv.innerHTML = '<div style="padding:10px;color:var(--grey-600);background:var(--grey-50);border-radius:3px;text-align:center">Aucune</div>';
+        `;
+      }).join('');
+    } else {
+      discardedDiv.innerHTML = '<div style="padding:12px;text-align:center;color:#999;font-style:italic">Aucune entreprise écartée</div>';
     }
     
     // Show next phase button if not in OA2
     nextPhaseContainer.style.display = (currentPhase !== "OA2") ? "block" : "none";
     
     resultsSection.style.display = "block";
+    
+    // Scroll to results
+    resultsSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
     
     // Reload data to get updated results
     await loadEvaluation(currentEvalId);

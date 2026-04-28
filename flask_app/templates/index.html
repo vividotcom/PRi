@@ -330,7 +330,7 @@
   </div>
 </div>
 
-<!-- ═══════════════════ STEP EDIT MODAL ═════════════════════���════════════ -->
+<!-- ═══════════════════ STEP EDIT MODAL ═════════════════════����════════════ -->
 <div id="stepEditModal" class="modal" style="display:none">
   <div class="modal-content" style="max-width:500px">
     <div class="modal-header">
@@ -566,22 +566,39 @@
           </div>
           
           <!-- Results section -->
-          <div id="resultsSection" style="display:none;padding:16px;background:var(--grey-50);border:1px solid var(--grey-300);border-radius:4px">
-            <h4 style="margin:0 0 12px 0;color:var(--grey-900)">Résultats de l'Évaluation</h4>
-            
-            <div style="margin-bottom:16px">
-              <h5 style="margin:0 0 8px 0;color:#4CAF50;font-weight:600">À Relancer</h5>
-              <div id="resultKept" style="padding:8px;background:white;border-left:4px solid #4CAF50"></div>
+          <div id="resultsSection" style="display:none;padding:0;margin-top:20px;border:2px solid #E0E0E0;border-radius:6px;overflow:hidden">
+            <div style="background:linear-gradient(135deg, #F5F5F5 0%, #FAFAFA 100%);padding:14px 16px;border-bottom:1px solid #E0E0E0">
+              <h4 style="margin:0;color:#333;font-size:15px;font-weight:700">
+                <span class="glyphicon glyphicon-list" style="margin-right:6px"></span> Résultats de l'Évaluation
+              </h4>
             </div>
             
-            <div style="margin-bottom:16px">
-              <h5 style="margin:0 0 8px 0;color:#F44336;font-weight:600">À Écarter</h5>
-              <div id="resultDiscarded" style="padding:8px;background:white;border-left:4px solid #F44336"></div>
+            <div style="padding:16px">
+              <!-- À Relancer Section -->
+              <div style="margin-bottom:20px">
+                <div style="display:flex;align-items:center;margin-bottom:12px">
+                  <div style="width:12px;height:12px;background:#4CAF50;border-radius:50%;margin-right:8px"></div>
+                  <h5 style="margin:0;color:#2E7D32;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.5px">À Relancer</h5>
+                </div>
+                <div id="resultKept" style="padding:0;display:flex;flex-direction:column;gap:8px"></div>
+              </div>
+              
+              <!-- Divider -->
+              <div style="height:1px;background:#E0E0E0;margin:16px 0"></div>
+              
+              <!-- À Écarter Section -->
+              <div style="margin-bottom:16px">
+                <div style="display:flex;align-items:center;margin-bottom:12px">
+                  <div style="width:12px;height:12px;background:#F44336;border-radius:50%;margin-right:8px"></div>
+                  <h5 style="margin:0;color:#C62828;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.5px">À Écarter</h5>
+                </div>
+                <div id="resultDiscarded" style="padding:0;display:flex;flex-direction:column;gap:8px"></div>
+              </div>
             </div>
             
             <!-- Next phase button -->
-            <div id="nextPhaseContainer" style="display:none;margin-top:16px">
-              <button onclick="moveToNextPhase()" style="padding:10px 18px;background:#FF9800;color:white;border:none;border-radius:4px;font-weight:600;cursor:pointer">
+            <div id="nextPhaseContainer" style="display:none;padding:12px 16px;background:#FFF8F0;border-top:1px solid #E0E0E0">
+              <button onclick="moveToNextPhase()" style="padding:12px 16px;background:#FF9800;color:white;border:none;border-radius:4px;font-weight:600;cursor:pointer;width:100%;font-size:14px;display:flex;align-items:center;justify-content:center;gap:6px">
                 <span class="glyphicon glyphicon-arrow-right"></span> Continuer vers Phase Suivante
               </button>
             </div>
