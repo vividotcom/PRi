@@ -1654,3 +1654,155 @@ html, body {
   margin-top: 4px;
 }
 
+
+/* ── FINANCIAL EVALUATIONS ─────────────────────────────────────────────────── */
+
+.eval-phase-container {
+  background: var(--white);
+  border: 1px solid var(--grey-300);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.eval-phase-header {
+  margin-bottom: 16px;
+  border-bottom: 2px solid var(--grey-200);
+  padding-bottom: 12px;
+}
+
+.eval-phase-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--grey-900);
+}
+
+.phase-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--white);
+}
+
+.phase-oi {
+  background: #4CAF50;
+}
+
+.phase-oa1 {
+  background: #FF9800;
+}
+
+.phase-oa2 {
+  background: #2196F3;
+}
+
+.eval-title-input {
+  margin-bottom: 12px;
+}
+
+.companies-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.company-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.company-name-input,
+.company-amount-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--grey-300);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.company-amount-input {
+  flex: 0 0 120px;
+}
+
+.btn-remove-company {
+  padding: 8px 10px;
+  background: #FADBD8;
+  color: var(--red);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all var(--transition);
+}
+
+.btn-remove-company:hover {
+  background: #F5B7B1;
+}
+
+.eval-results {
+  background: #f5f5f5;
+  padding: 16px;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.eval-results table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.eval-results th {
+  padding: 8px;
+  text-align: left;
+  background: #366092;
+  color: var(--white);
+  font-weight: 600;
+}
+
+.eval-results td {
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
+}
+
+.btn-secondary {
+  padding: 8px 12px;
+  background: #E3F2FD;
+  color: #1976D2;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all var(--transition);
+}
+
+.btn-secondary:hover {
+  background: #BBDEFB;
+}
+
+.btn-primary {
+  padding: 8px 12px;
+  background: #4CAF50;
+  color: var(--white);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all var(--transition);
+}
+
+.btn-primary:hover {
+  background: #45a049;
+}
+

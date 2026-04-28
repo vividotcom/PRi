@@ -1528,3 +1528,252 @@ function showToast(message, type = "success") {
     setTimeout(() => toast.remove(), 400);
   }, 3000);
 }
+
+/* ── EVALUATIONS ────────────────────────────────────────────────────────────────── */
+
+let currentPR = null;
+let oiResults = null;
+let oa1Results = null;
+
+document.addEventListener("DOMContentLoaded", function() {
+  const evalBtn = document.getElementById("btnEvaluations");
+  if (evalBtn) evalBtn.addEventListener("click", openEvaluationsModal);
+});
+
+async function openEvaluationsModal() {
+  const prList = document.querySelectorAll(".pr-item");
+  if (prList.length === 0) {
+    showToast("Veuillez créer une PR d'abord", "error");
+    return;
+  }
+  
+  const activePR = document.querySelector(".pr-item.active");
+  if (!activePR) {
+    showToast("Veuillez sélectionner une PR", "error");
+    return;
+  }
+  
+  currentPR = activePR.dataset.id;
+  
+  // Clear inputs
+  document.getElementById("companiesInputOI").innerHTML = '<div class="company-input-row"><input type="text" placeholder="Nom de l\'entreprise" class="company-name-input"><input type="number" placeholder="Montant" class="company-amount-input" step="0.01"><button type="button" class="btn-remove-company" onclick="removeCompanyInput(this)"><span class="glyphicon glyphicon-remove"></span></button></div>';
+  document.getElementById("evalTitleOI").value = "";
+  
+  // Load saved evaluations
+  await loadSavedEvaluations();
+  
+  document.getElementById("evaluationsModal").style.display = "flex";
+}
+
+function addCompanyInput(containerId) {
+  const container = document.getElementById(containerId);
+  const row = document.createElement("div");
+  row.className = "company-input-row";
+  row.innerHTML = `<input type="text" placeholder="Nom de l'entreprise" class="company-name-input"><input type="number" placeholder="Montant" class="company-amount-input" step="0.01"><button type="button" class="btn-remove-company" onclick="removeCompanyInput(this)"><span class="glyphicon glyphicon-remove"></span></button>`;
+  container.appendChild(row);
+}
+
+function removeCompanyInput(btn) {
+  btn.parentElement.remove();
+}
+
+function getCompaniesFromInput(containerId) {
+  const container = document.getElementById(containerId);
+  const companies = [];
+  const rows = container.querySelectorAll(".company-input-row");
+  rows.forEach(row => {
+    const name = row.querySelector(".company-name-input").value.trim();
+    const amount = parseFloat(row.querySelector(".company-amount-input").value);
+    if (name && !isNaN(amount) && amount > 0) companies.push({ name, amount });
+  });
+  return companies;
+}
+
+async function evaluatePhaseOI() {
+  const title = document.getElementById("evalTitleOI").value.trim();
+  const companies = getCompaniesFromInput("companiesInputOI");
+  if (!title) { showToast("Veuillez entrer un titre", "error"); return; }
+  if (companies.length < 2) { showToast("Veuillez ajouter au moins 2 entreprises", "error"); return; }
+  
+  try {
+    const response = await fetch("/api/evaluations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pr_id: currentPR, title, phase: "OI", companies })
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      showToast(err.error || "Erreur", "error");
+      return;
+    }
+    const result = await response.json();
+    oiResults = result;
+    displayOIResults(result, companies);
+    document.getElementById("oa1Container").style.opacity = "1";
+    document.getElementById("oa1Container").style.pointerEvents = "auto";
+    const oa1Container = document.getElementById("companiesInputOA1");
+    oa1Container.innerHTML = "";
+    result.kept.forEach(name => {
+      const company = companies.find(c => c.name === name);
+      const row = document.createElement("div");
+      row.className = "company-input-row";
+      row.innerHTML = `<input type="text" value="${company.name}" class="company-name-input" readonly><input type="number" placeholder="Nouveau montant" class="company-amount-input" step="0.01"><button type="button" class="btn-remove-company" onclick="removeCompanyInput(this)"><span class="glyphicon glyphicon-remove"></span></button>`;
+      oa1Container.appendChild(row);
+    });
+    showToast("Phase OI évaluée avec succès", "success");
+  } catch (err) {
+    console.error("[v0] Error evaluating OI:", err);
+    showToast("Erreur lors de l'évaluation", "error");
+  }
+}
+
+function displayOIResults(result, companies) {
+  const resultDiv = document.getElementById("resultOI");
+  let html = '<div style="background:#f5f5f5;padding:16px;border-radius:8px"><h5 style="margin-top:0">Résultats OI</h5><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#366092;color:white"><th style="padding:8px;text-align:left">Entreprise</th><th style="padding:8px;text-align:right">Montant</th><th style="padding:8px;text-align:right">Classement</th><th style="padding:8px;text-align:right">Écart %</th><th style="padding:8px;text-align:left">Statut</th><th style="padding:8px;text-align:left">Raison</th></tr></thead><tbody>';
+  companies.forEach(co => {
+    const res = result.results[co.name];
+    const statusColor = res.status === "KEPT" ? "#FFB6C1" : "#FFD7A8";
+    html += `<tr style="border-bottom:1px solid #ddd"><td style="padding:8px">${co.name}</td><td style="padding:8px;text-align:right">${co.amount.toLocaleString('fr-FR', {minimumFractionDigits: 2})}</td><td style="padding:8px;text-align:right">${res.ranking}</td><td style="padding:8px;text-align:right">${res.gap_pct}%</td><td style="padding:8px;background:${statusColor};font-weight:600">${res.status}</td><td style="padding:8px;font-size:12px">${res.reason}</td></tr>`;
+  });
+  html += `</tbody></table><div style="margin-top:12px;padding-top:12px;border-top:1px solid #ddd"><strong>Conservés pour OA1:</strong> ${result.kept.join(", ")}<br><strong>Écartés:</strong> ${result.eliminated.join(", ")}</div></div>`;
+  resultDiv.innerHTML = html;
+  resultDiv.style.display = "block";
+}
+
+async function evaluatePhaseOA1() {
+  if (!oiResults) { showToast("Veuillez d'abord évaluer OI", "error"); return; }
+  const title = document.getElementById("evalTitleOA1").value.trim();
+  const companies = getCompaniesFromInput("companiesInputOA1");
+  if (!title) { showToast("Veuillez entrer un titre", "error"); return; }
+  if (companies.length < 1) { showToast("Veuillez ajouter les entreprises", "error"); return; }
+  
+  const oiCompanies = oiResults.results;
+  let cheapestOI = null;
+  let minAmount = Infinity;
+  Object.keys(oiCompanies).forEach(name => {
+    if (oiCompanies[name].amount < minAmount) {
+      minAmount = oiCompanies[name].amount;
+      cheapestOI = name;
+    }
+  });
+  
+  try {
+    const response = await fetch("/api/evaluations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pr_id: currentPR, title, phase: "OA1", companies, original_cheapest_name: cheapestOI })
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      showToast(err.error || "Erreur", "error");
+      return;
+    }
+    const result = await response.json();
+    oa1Results = result;
+    displayOA1Results(result, companies);
+    document.getElementById("oa2Container").style.opacity = "1";
+    document.getElementById("oa2Container").style.pointerEvents = "auto";
+    const oa2Container = document.getElementById("companiesInputOA2");
+    oa2Container.innerHTML = "";
+    result.kept.forEach(name => {
+      const company = companies.find(c => c.name === name);
+      const row = document.createElement("div");
+      row.className = "company-input-row";
+      row.innerHTML = `<input type="text" value="${company.name}" class="company-name-input" readonly><input type="number" placeholder="Nouveau montant" class="company-amount-input" step="0.01"><button type="button" class="btn-remove-company" onclick="removeCompanyInput(this)"><span class="glyphicon glyphicon-remove"></span></button>`;
+      oa2Container.appendChild(row);
+    });
+    showToast("Phase OA1 évaluée avec succès", "success");
+  } catch (err) {
+    console.error("[v0] Error evaluating OA1:", err);
+    showToast("Erreur lors de l'évaluation", "error");
+  }
+}
+
+function displayOA1Results(result, companies) {
+  const resultDiv = document.getElementById("resultOA1");
+  let html = '<div style="background:#f5f5f5;padding:16px;border-radius:8px"><h5 style="margin-top:0">Résultats OA1</h5><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#366092;color:white"><th style="padding:8px;text-align:left">Entreprise</th><th style="padding:8px;text-align:right">Montant</th><th style="padding:8px;text-align:right">Classement</th><th style="padding:8px;text-align:right">Écart %</th><th style="padding:8px;text-align:left">Statut</th><th style="padding:8px;text-align:left">Raison</th></tr></thead><tbody>';
+  companies.forEach(co => {
+    const res = result.results[co.name];
+    const statusColor = res.status === "KEPT" ? "#FFB6C1" : "#FFD7A8";
+    html += `<tr style="border-bottom:1px solid #ddd"><td style="padding:8px">${co.name}</td><td style="padding:8px;text-align:right">${co.amount.toLocaleString('fr-FR', {minimumFractionDigits: 2})}</td><td style="padding:8px;text-align:right">${res.ranking}</td><td style="padding:8px;text-align:right">${res.gap_pct}%</td><td style="padding:8px;background:${statusColor};font-weight:600">${res.status}</td><td style="padding:8px;font-size:12px">${res.reason}</td></tr>`;
+  });
+  html += `</tbody></table><div style="margin-top:12px;padding-top:12px;border-top:1px solid #ddd"><strong>Conservés pour OA2:</strong> ${result.kept.join(", ")}<br><strong>Écartés:</strong> ${result.eliminated.join(", ")}</div></div>`;
+  resultDiv.innerHTML = html;
+  resultDiv.style.display = "block";
+}
+
+async function evaluatePhaseOA2() {
+  if (!oa1Results) { showToast("Veuillez d'abord évaluer OA1", "error"); return; }
+  const title = document.getElementById("evalTitleOA2").value.trim();
+  const companies = getCompaniesFromInput("companiesInputOA2");
+  if (!title) { showToast("Veuillez entrer un titre", "error"); return; }
+  if (companies.length < 1) { showToast("Veuillez ajouter les entreprises", "error"); return; }
+  
+  try {
+    const response = await fetch("/api/evaluations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pr_id: currentPR, title, phase: "OA2", companies })
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      showToast(err.error || "Erreur", "error");
+      return;
+    }
+    const result = await response.json();
+    displayOA2Results(result, companies);
+    showToast("Phase OA2 évaluée et sauvegardée!", "success");
+    await loadSavedEvaluations();
+  } catch (err) {
+    console.error("[v0] Error evaluating OA2:", err);
+    showToast("Erreur lors de l'évaluation", "error");
+  }
+}
+
+function displayOA2Results(result, companies) {
+  const resultDiv = document.getElementById("resultOA2");
+  let html = '<div style="background:#f5f5f5;padding:16px;border-radius:8px"><h5 style="margin-top:0">Résultats OA2 - GAGNANT FINAL</h5><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#366092;color:white"><th style="padding:8px;text-align:left">Entreprise</th><th style="padding:8px;text-align:right">Montant</th><th style="padding:8px;text-align:right">Classement</th><th style="padding:8px;text-align:right">Écart %</th><th style="padding:8px;text-align:left">Statut</th><th style="padding:8px;text-align:left">Raison</th></tr></thead><tbody>';
+  companies.forEach(co => {
+    const res = result.results[co.name];
+    let statusColor = "#FFD7A8";
+    if (res.status === "WINNER") statusColor = "#92D050";
+    html += `<tr style="border-bottom:1px solid #ddd"><td style="padding:8px"><strong>${co.name}</strong></td><td style="padding:8px;text-align:right"><strong>${co.amount.toLocaleString('fr-FR', {minimumFractionDigits: 2})}</strong></td><td style="padding:8px;text-align:right">${res.ranking}</td><td style="padding:8px;text-align:right">${res.gap_pct}%</td><td style="padding:8px;background:${statusColor};font-weight:600">${res.status}</td><td style="padding:8px;font-size:12px"><strong>${res.reason}</strong></td></tr>`;
+  });
+  html += `</tbody></table><div style="margin-top:12px;padding-top:12px;border-top:1px solid #ddd;background:#d4edda;padding:12px;border-radius:4px;color:#155724;font-weight:600">🏆 GAGNANT FINAL: ${result.kept.join(", ")}</div></div>`;
+  resultDiv.innerHTML = html;
+  resultDiv.style.display = "block";
+}
+
+async function loadSavedEvaluations() {
+  if (!currentPR) return;
+  try {
+    const response = await fetch(`/api/evaluations/${currentPR}`);
+    const evaluations = await response.json();
+    const listDiv = document.getElementById("savedEvaluationsList");
+    if (evaluations.length === 0) {
+      listDiv.innerHTML = '<p style="color:#999;font-size:13px">Aucune évaluation sauvegardée</p>';
+      return;
+    }
+    let html = '<div style="display:grid;gap:8px">';
+    evaluations.forEach(eval => {
+      html += `<div style="background:#f9f9f9;border:1px solid #ddd;padding:10px;border-radius:6px;display:flex;justify-content:space-between;align-items:center"><div><strong>${eval.title}</strong><br><span style="font-size:12px;color:#666">Phase: ${eval.phase} | ${new Date(eval.created_date).toLocaleDateString('fr-FR')}</span></div><div style="display:flex;gap:6px"><button class="btn-secondary" onclick="showEvalDetail('${eval.id}')" style="padding:6px 10px;font-size:12px"><span class="glyphicon glyphicon-eye-open"></span></button><button class="btn-cancel" onclick="deleteEval('${eval.id}')" style="padding:6px 10px;font-size:12px"><span class="glyphicon glyphicon-trash"></span></button></div></div>`;
+    });
+    html += '</div>';
+    listDiv.innerHTML = html;
+  } catch (err) {
+    console.error("[v0] Error loading evaluations:", err);
+  }
+}
+
+async function deleteEval(evalId) {
+  if (!confirm("Êtes-vous sûr?")) return;
+  try {
+    const response = await fetch(`/api/evaluations/${evalId}`, { method: "DELETE" });
+    if (!response.ok) { showToast("Erreur", "error"); return; }
+    showToast("Supprimée", "success");
+    await loadSavedEvaluations();
+  } catch (err) {
+    console.error("[v0] Error:", err);
+    showToast("Erreur", "error");
+  }
+}

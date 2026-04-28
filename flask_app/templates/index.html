@@ -330,7 +330,7 @@
   </div>
 </div>
 
-<!-- ═══════════════════ STEP EDIT MODAL ══════════════════════════════════ -->
+<!-- ═══════════════════ STEP EDIT MODAL ═════════════════════��════════════ -->
 <div id="stepEditModal" class="modal" style="display:none">
   <div class="modal-content" style="max-width:500px">
     <div class="modal-header">
@@ -473,6 +473,144 @@
         </button>
         <button style="flex:1;padding:10px;background:var(--grey-200);color:var(--grey-900);border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="closeModal('prDocEditModal')">
           Annuler
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ EVALUATIONS MODAL ════════════════════════════════ -->
+<div id="evaluationsModal" class="modal" style="display:none">
+  <div class="modal-content" style="max-width:1000px;max-height:90vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <span class="glyphicon glyphicon-usd"></span>
+        Évaluations Financières (OI → OA1 → OA2)
+      </h3>
+      <button class="modal-close" onclick="closeModal('evaluationsModal')">&times;</button>
+    </div>
+    
+    <div class="modal-body">
+      <!-- Phase 1: OI -->
+      <div class="eval-phase-container">
+        <div class="eval-phase-header">
+          <h4><span class="phase-badge phase-oi">Phase 1</span> Évaluation OI (Offres Initiales)</h4>
+          <p style="margin:4px 0 0 0;font-size:12px;color:#666">Sélection des 3 premiers moins disants + 4ème si écart &lt; 15%</p>
+        </div>
+        
+        <div class="eval-title-input">
+          <input type="text" id="evalTitleOI" placeholder="Titre de l'évaluation (ex: Evaluation Première Mise)" class="form-input" style="margin-bottom:12px">
+        </div>
+        
+        <div id="companiesInputOI" class="companies-input-container">
+          <div class="company-input-row">
+            <input type="text" placeholder="Nom de l'entreprise" class="company-name-input">
+            <input type="number" placeholder="Montant" class="company-amount-input" step="0.01">
+            <button type="button" class="btn-remove-company" onclick="removeCompanyInput(this)">
+              <span class="glyphicon glyphicon-remove"></span>
+            </button>
+          </div>
+        </div>
+        
+        <div style="margin-top:10px;margin-bottom:16px">
+          <button type="button" class="btn-secondary" onclick="addCompanyInput('companiesInputOI')">
+            <span class="glyphicon glyphicon-plus"></span> Ajouter une entreprise
+          </button>
+        </div>
+        
+        <button type="button" class="btn-primary" onclick="evaluatePhaseOI()" style="width:100%;padding:10px">
+          <span class="glyphicon glyphicon-play"></span> Évaluer OI
+        </button>
+        
+        <div id="resultOI" class="eval-results" style="display:none;margin-top:16px"></div>
+      </div>
+      
+      <!-- Phase 2: OA1 -->
+      <div class="eval-phase-container" style="margin-top:24px;opacity:0.5;pointer-events:none" id="oa1Container">
+        <div class="eval-phase-header">
+          <h4><span class="phase-badge phase-oa1">Phase 2</span> Évaluation OA1 (Offres Améliorées 1)</h4>
+          <p style="margin:4px 0 0 0;font-size:12px;color:#666">Sélection du moins disant + ceux avec écart &lt; 5% + toujours le moins disant OI</p>
+        </div>
+        
+        <div class="eval-title-input">
+          <input type="text" id="evalTitleOA1" placeholder="Titre de l'évaluation OA1" class="form-input" style="margin-bottom:12px">
+        </div>
+        
+        <div id="companiesInputOA1" class="companies-input-container"></div>
+        
+        <div style="margin-top:10px;margin-bottom:16px">
+          <button type="button" class="btn-secondary" onclick="addCompanyInput('companiesInputOA1')">
+            <span class="glyphicon glyphicon-plus"></span> Ajouter une entreprise
+          </button>
+        </div>
+        
+        <button type="button" class="btn-primary" onclick="evaluatePhaseOA1()" style="width:100%;padding:10px">
+          <span class="glyphicon glyphicon-play"></span> Évaluer OA1
+        </button>
+        
+        <div id="resultOA1" class="eval-results" style="display:none;margin-top:16px"></div>
+      </div>
+      
+      <!-- Phase 3: OA2 -->
+      <div class="eval-phase-container" style="margin-top:24px;opacity:0.5;pointer-events:none" id="oa2Container">
+        <div class="eval-phase-header">
+          <h4><span class="phase-badge phase-oa2">Phase 3</span> Évaluation OA2 (Offres Améliorées 2)</h4>
+          <p style="margin:4px 0 0 0;font-size:12px;color:#666">Sélection du moins disant uniquement (GAGNANT FINAL)</p>
+        </div>
+        
+        <div class="eval-title-input">
+          <input type="text" id="evalTitleOA2" placeholder="Titre de l'évaluation OA2" class="form-input" style="margin-bottom:12px">
+        </div>
+        
+        <div id="companiesInputOA2" class="companies-input-container"></div>
+        
+        <div style="margin-top:10px;margin-bottom:16px">
+          <button type="button" class="btn-secondary" onclick="addCompanyInput('companiesInputOA2')">
+            <span class="glyphicon glyphicon-plus"></span> Ajouter une entreprise
+          </button>
+        </div>
+        
+        <button type="button" class="btn-primary" onclick="evaluatePhaseOA2()" style="width:100%;padding:10px">
+          <span class="glyphicon glyphicon-play"></span> Évaluer OA2
+        </button>
+        
+        <div id="resultOA2" class="eval-results" style="display:none;margin-top:16px"></div>
+      </div>
+      
+      <!-- Saved Evaluations -->
+      <div style="margin-top:32px;padding-top:24px;border-top:2px solid #E0E0E0">
+        <h4 style="margin:0 0 16px 0;display:flex;align-items:center;gap:8px">
+          <span class="glyphicon glyphicon-list"></span>
+          Évaluations Sauvegardées
+        </h4>
+        <div id="savedEvaluationsList" style="max-height:300px;overflow-y:auto"></div>
+      </div>
+    </div>
+    
+    <div class="modal-footer-custom">
+      <button class="btn-cancel" onclick="closeModal('evaluationsModal')">
+        <span class="glyphicon glyphicon-remove"></span> Fermer
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Evaluation Results Detail Modal -->
+<div id="evalDetailModal" class="modal" style="display:none">
+  <div class="modal-content" style="max-width:800px">
+    <div class="modal-header">
+      <h3 class="modal-title" id="evalDetailTitle">Détail de l'Évaluation</h3>
+      <button class="modal-close" onclick="closeModal('evalDetailModal')">&times;</button>
+    </div>
+    
+    <div class="modal-body">
+      <div id="evalDetailContent"></div>
+      <div style="margin-top:20px;display:flex;gap:8px">
+        <button class="btn-primary" onclick="exportEvalDetail()" style="flex:1;padding:10px">
+          <span class="glyphicon glyphicon-download-alt"></span> Exporter Excel
+        </button>
+        <button class="btn-cancel" onclick="closeModal('evalDetailModal')" style="flex:1;padding:10px">
+          <span class="glyphicon glyphicon-remove"></span> Fermer
         </button>
       </div>
     </div>

@@ -1,4 +1,4 @@
-﻿from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file
 import os
 import sqlite3
 import json
@@ -103,6 +103,20 @@ def init_db():
             name        TEXT NOT NULL,
             done        INTEGER NOT NULL DEFAULT 0,
             sort_order  INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (pr_id) REFERENCES pr(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Financial evaluations table (OI, OA1, OA2)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS evaluation (
+            id              TEXT PRIMARY KEY,
+            pr_id           TEXT NOT NULL,
+            title           TEXT NOT NULL,
+            phase           TEXT NOT NULL,
+            companies_data  TEXT NOT NULL,
+            results         TEXT NOT NULL,
+            created_date    TEXT NOT NULL,
             FOREIGN KEY (pr_id) REFERENCES pr(id) ON DELETE CASCADE
         )
     """)
@@ -453,6 +467,154 @@ def count_late_steps_for_pr(tasks: dict) -> dict:
     warning = sum(1 for t in tasks.values() if t.get("delay") == "warning")
     late    = sum(1 for t in tasks.values() if t.get("delay") == "late")
     return {"warning": warning, "late": late}
+
+def evaluate_offers_oi(companies: list) -> dict:
+    """
+    Evaluation OI: Keep 3 cheapest + 4th if gap < 15%
+    companies: [{"name": str, "amount": float}, ...]
+    Returns: {"kept": [names], "eliminated": [names], "results": {name: {amount, gap%, reason}}}
+    """
+    if not companies:
+        return {"kept": [], "eliminated": [], "results": {}}
+    
+    # Sort by amount
+    sorted_co = sorted(companies, key=lambda x: x["amount"])
+    min_amount = sorted_co[0]["amount"]
+    
+    results = {}
+    kept = []
+    eliminated = []
+    
+    for i, co in enumerate(sorted_co):
+        if i < 3:
+            # Always keep first 3 (cheapest)
+            kept.append(co["name"])
+            gap_pct = ((co["amount"] - min_amount) / min_amount * 100) if min_amount > 0 else 0
+            results[co["name"]] = {
+                "amount": co["amount"],
+                "gap_pct": round(gap_pct, 2),
+                "ranking": i + 1,
+                "status": "KEPT",
+                "reason": "Top 3 cheapest"
+            }
+        else:
+            # For 4th and beyond: check if gap < 15%
+            gap_pct = ((co["amount"] - min_amount) / min_amount * 100) if min_amount > 0 else 0
+            if gap_pct < 15:
+                kept.append(co["name"])
+                results[co["name"]] = {
+                    "amount": co["amount"],
+                    "gap_pct": round(gap_pct, 2),
+                    "ranking": i + 1,
+                    "status": "KEPT",
+                    "reason": f"Gap {round(gap_pct, 2)}% < 15%"
+                }
+            else:
+                eliminated.append(co["name"])
+                results[co["name"]] = {
+                    "amount": co["amount"],
+                    "gap_pct": round(gap_pct, 2),
+                    "ranking": i + 1,
+                    "status": "ELIMINATED",
+                    "reason": f"Gap {round(gap_pct, 2)}% > 15%"
+                }
+    
+    return {"kept": kept, "eliminated": eliminated, "results": results}
+
+
+def evaluate_offers_oa1(companies: list, original_cheapest_name: str) -> dict:
+    """
+    Evaluation OA1: Keep cheapest + those with gap < 5% + always keep original cheapest from OI
+    companies: [{"name": str, "amount": float}, ...]
+    original_cheapest_name: the company that was cheapest in OI
+    Returns: {"kept": [names], "eliminated": [names], "results": {name: {...}}}
+    """
+    if not companies:
+        return {"kept": [], "eliminated": [], "results": {}}
+    
+    sorted_co = sorted(companies, key=lambda x: x["amount"])
+    min_amount = sorted_co[0]["amount"]
+    
+    results = {}
+    kept = []
+    eliminated = []
+    
+    for i, co in enumerate(sorted_co):
+        gap_pct = ((co["amount"] - min_amount) / min_amount * 100) if min_amount > 0 else 0
+        
+        # Always keep the original cheapest from OI (even if gap > 5%)
+        if co["name"] == original_cheapest_name:
+            kept.append(co["name"])
+            results[co["name"]] = {
+                "amount": co["amount"],
+                "gap_pct": round(gap_pct, 2),
+                "ranking": i + 1,
+                "status": "KEPT",
+                "reason": "Was cheapest in OI (always kept)"
+            }
+        elif gap_pct < 5:
+            kept.append(co["name"])
+            results[co["name"]] = {
+                "amount": co["amount"],
+                "gap_pct": round(gap_pct, 2),
+                "ranking": i + 1,
+                "status": "KEPT",
+                "reason": f"Gap {round(gap_pct, 2)}% < 5%"
+            }
+        else:
+            eliminated.append(co["name"])
+            results[co["name"]] = {
+                "amount": co["amount"],
+                "gap_pct": round(gap_pct, 2),
+                "ranking": i + 1,
+                "status": "ELIMINATED",
+                "reason": f"Gap {round(gap_pct, 2)}% > 5% (not cheapest in OI)"
+            }
+    
+    return {"kept": kept, "eliminated": eliminated, "results": results}
+
+
+def evaluate_offers_oa2(companies: list) -> dict:
+    """
+    Evaluation OA2: Keep only cheapest (final winner)
+    If 2+ have same min amount, keep all of them
+    companies: [{"name": str, "amount": float}, ...]
+    Returns: {"kept": [names], "eliminated": [names], "results": {name: {...}}}
+    """
+    if not companies:
+        return {"kept": [], "eliminated": [], "results": {}}
+    
+    sorted_co = sorted(companies, key=lambda x: x["amount"])
+    min_amount = sorted_co[0]["amount"]
+    
+    results = {}
+    kept = []
+    eliminated = []
+    
+    for i, co in enumerate(sorted_co):
+        gap_pct = ((co["amount"] - min_amount) / min_amount * 100) if min_amount > 0 else 0
+        
+        if co["amount"] == min_amount:
+            kept.append(co["name"])
+            results[co["name"]] = {
+                "amount": co["amount"],
+                "gap_pct": 0,
+                "ranking": 1,
+                "status": "WINNER",
+                "reason": "Cheapest offer (FINAL WINNER)"
+            }
+        else:
+            eliminated.append(co["name"])
+            results[co["name"]] = {
+                "amount": co["amount"],
+                "gap_pct": round(gap_pct, 2),
+                "ranking": i + 1,
+                "status": "ELIMINATED",
+                "reason": f"Not cheapest (gap {round(gap_pct, 2)}%)"
+            }
+    
+    return {"kept": kept, "eliminated": eliminated, "results": results}
+
 
 def calculate_kpi_delay(pr_data, tasks: dict) -> dict:
     """
@@ -1331,7 +1493,7 @@ def get_processing_limits():
     return jsonify(PROCESSING_LIMITS)
 
 
-# ── DOCUMENTS MANAGEMENT ──────────��───────────────────────────────────────────
+# ── DOCUMENTS MANAGEMENT ──────────���───────────────────────────────────────────
 
 @app.route("/api/documents", methods=["GET"])
 def get_documents():
@@ -1566,6 +1728,197 @@ def get_kpi_processing_delays():
     
     conn.close()
     return jsonify(kpi_data)
+
+
+# ── FINANCIAL EVALUATIONS (OI, OA1, OA2) ──────────────────────────────────────
+
+@app.route("/api/evaluations/<pr_id>", methods=["GET"])
+def get_evaluations(pr_id):
+    """Get all evaluations for a PR"""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, pr_id, title, phase, companies_data, results, created_date FROM evaluation WHERE pr_id = ? ORDER BY created_date DESC",
+        (pr_id,)
+    ).fetchall()
+    conn.close()
+    
+    result = []
+    for r in rows:
+        result.append({
+            "id": r["id"],
+            "pr_id": r["pr_id"],
+            "title": r["title"],
+            "phase": r["phase"],
+            "companies_data": json.loads(r["companies_data"]),
+            "results": json.loads(r["results"]),
+            "created_date": r["created_date"]
+        })
+    return jsonify(result)
+
+
+@app.route("/api/evaluations", methods=["POST"])
+def create_evaluation():
+    """
+    Create a new evaluation. Body:
+    {
+      "pr_id": str,
+      "title": str,
+      "phase": "OI" | "OA1" | "OA2",
+      "companies": [{"name": str, "amount": float}, ...],
+      "original_cheapest_name": str (for OA1)
+    }
+    """
+    body = request.json
+    pr_id = body.get("pr_id", "").strip()
+    title = body.get("title", "").strip()
+    phase = body.get("phase", "").strip()
+    companies = body.get("companies", [])
+    original_cheapest = body.get("original_cheapest_name", "")
+    
+    if not all([pr_id, title, phase, companies]):
+        return jsonify({"error": "Champs requis: pr_id, title, phase, companies"}), 400
+    
+    if phase not in ["OI", "OA1", "OA2"]:
+        return jsonify({"error": "Phase invalide. Doit être OI, OA1 ou OA2"}), 400
+    
+    conn = get_db()
+    row = conn.execute("SELECT id FROM pr WHERE id = ?", (pr_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "PR introuvable"}), 404
+    
+    # Evaluate based on phase
+    if phase == "OI":
+        eval_result = evaluate_offers_oi(companies)
+    elif phase == "OA1":
+        eval_result = evaluate_offers_oa1(companies, original_cheapest)
+    else:  # OA2
+        eval_result = evaluate_offers_oa2(companies)
+    
+    eval_id = str(uuid.uuid4())
+    conn.execute(
+        "INSERT INTO evaluation (id, pr_id, title, phase, companies_data, results, created_date) VALUES (?,?,?,?,?,?,?)",
+        (eval_id, pr_id, title, phase, json.dumps(companies), json.dumps(eval_result), datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+    
+    eval_result["id"] = eval_id
+    eval_result["created_date"] = datetime.now().isoformat()
+    return jsonify(eval_result), 201
+
+
+@app.route("/api/evaluations/<eval_id>", methods=["DELETE"])
+def delete_evaluation(eval_id):
+    """Delete an evaluation"""
+    conn = get_db()
+    row = conn.execute("SELECT id FROM evaluation WHERE id = ?", (eval_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Évaluation introuvable"}), 404
+    
+    conn.execute("DELETE FROM evaluation WHERE id = ?", (eval_id,))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"success": True})
+
+
+@app.route("/api/evaluations/<eval_id>/export", methods=["GET"])
+def export_evaluation_excel(eval_id):
+    """Export evaluation as Excel"""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM evaluation WHERE id = ?", (eval_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Évaluation introuvable"}), 404
+    
+    companies_data = json.loads(row["companies_data"])
+    results = json.loads(row["results"])
+    
+    # Create workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Evaluation"
+    
+    # Header
+    ws["A1"] = f"Évaluation Financière - {row['title']}"
+    ws["A1"].font = Font(bold=True, size=14)
+    ws["A2"] = f"Phase: {row['phase']}"
+    ws["A2"].font = Font(bold=True, size=11)
+    ws["A3"] = f"Date: {row['created_date']}"
+    
+    # Column headers
+    row_num = 5
+    headers = ["Entreprise", "Montant", "Classement", "Écart %", "Statut", "Raison"]
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=row_num, column=col)
+        cell.value = header
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    
+    # Data rows
+    row_num = 6
+    for company in companies_data:
+        name = company["name"]
+        result = results.get(name, {})
+        
+        ws.cell(row=row_num, column=1).value = name
+        ws.cell(row=row_num, column=2).value = company["amount"]
+        ws.cell(row=row_num, column=3).value = result.get("ranking", "")
+        ws.cell(row=row_num, column=4).value = result.get("gap_pct", "")
+        
+        status = result.get("status", "")
+        ws.cell(row=row_num, column=5).value = status
+        
+        # Color code status
+        status_cell = ws.cell(row=row_num, column=5)
+        if status == "WINNER":
+            status_cell.fill = PatternFill(start_color="92D050", end_color="92D050", fill_type="solid")
+        elif status == "KEPT":
+            status_cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        elif status == "ELIMINATED":
+            status_cell.fill = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
+        
+        ws.cell(row=row_num, column=6).value = result.get("reason", "")
+        row_num += 1
+    
+    # Adjust columns
+    ws.column_dimensions["A"].width = 25
+    ws.column_dimensions["B"].width = 15
+    ws.column_dimensions["C"].width = 12
+    ws.column_dimensions["D"].width = 12
+    ws.column_dimensions["E"].width = 15
+    ws.column_dimensions["F"].width = 35
+    
+    # Summary section
+    row_num += 2
+    ws.cell(row=row_num, column=1).value = "Récapitulatif"
+    ws.cell(row=row_num, column=1).font = Font(bold=True, size=11)
+    
+    row_num += 1
+    ws.cell(row=row_num, column=1).value = "Conservés:"
+    ws.cell(row=row_num, column=2).value = ", ".join(json.loads(row["results"])["kept"] if isinstance(json.loads(row["results"]), dict) and "kept" in json.loads(row["results"]) else [])
+    
+    row_num += 1
+    ws.cell(row=row_num, column=1).value = "Écartés:"
+    ws.cell(row=row_num, column=2).value = ", ".join(json.loads(row["results"])["eliminated"] if isinstance(json.loads(row["results"]), dict) and "eliminated" in json.loads(row["results"]) else [])
+    
+    conn.close()
+    
+    # Send file
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"evaluation_{row['title']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    )
 
 
 # ── IMPORT EXCEL ──────────────────────────────────────────────────────────────
