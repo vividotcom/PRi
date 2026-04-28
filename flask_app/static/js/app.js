@@ -1676,7 +1676,7 @@ async function deleteEvaluation() {
   }
 }
 
-function switchPhase(phase) {
+async function switchPhase(phase) {
   currentPhase = phase;
   
   // Update tabs
@@ -1697,6 +1697,53 @@ function switchPhase(phase) {
   // Hide results
   document.getElementById("resultsSection").style.display = "none";
   
+  // Auto-populate companies from previous phase if no entries yet
+  const hasEntries = currentEvalData.entries[phase] && currentEvalData.entries[phase].length > 0;
+  
+  if (!hasEntries) {
+    if (phase === "OA1" && currentEvalData.oi_results) {
+      const oiResults = JSON.parse(currentEvalData.oi_results);
+      const keptCompanies = oiResults.kept || [];
+      
+      for (let company of keptCompanies) {
+        await fetch(`/api/evaluations/${currentEvalId}/entries`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "OA1",
+            company_name: company.company,
+            amount: 0,
+            company_order: keptCompanies.indexOf(company) + 1
+          })
+        });
+      }
+      
+      await loadEvaluation(currentEvalId);
+      return; // Will re-trigger switchPhase with loaded data
+    }
+    
+    if (phase === "OA2" && currentEvalData.oa1_results) {
+      const oa1Results = JSON.parse(currentEvalData.oa1_results);
+      const keptCompanies = oa1Results.kept || [];
+      
+      for (let company of keptCompanies) {
+        await fetch(`/api/evaluations/${currentEvalId}/entries`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "OA2",
+            company_name: company.company,
+            amount: 0,
+            company_order: keptCompanies.indexOf(company) + 1
+          })
+        });
+      }
+      
+      await loadEvaluation(currentEvalId);
+      return; // Will re-trigger switchPhase with loaded data
+    }
+  }
+  
   // Reload phase table
   renderPhaseTable();
 }
@@ -1706,6 +1753,19 @@ async function renderPhaseTable() {
   
   const phaseEntries = currentEvalData.entries[currentPhase] || [];
   const tableBody = document.getElementById("phaseTable");
+  const phaseBanner = document.getElementById("phaseBanner");
+  
+  // Show banner if this phase was auto-populated (no 0 amounts)
+  if (currentPhase !== "OI" && phaseEntries.length > 0) {
+    const allHaveZeroAmount = phaseEntries.every(e => e.amount === 0);
+    if (allHaveZeroAmount) {
+      phaseBanner.style.display = "block";
+    } else {
+      phaseBanner.style.display = "none";
+    }
+  } else {
+    phaseBanner.style.display = "none";
+  }
   
   if (phaseEntries.length === 0) {
     tableBody.innerHTML = '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--grey-600)">Aucune entreprise ajoutée</td></tr>';
@@ -1716,18 +1776,19 @@ async function renderPhaseTable() {
   const cheapest = sorted[0]?.amount || 0;
   
   tableBody.innerHTML = sorted.map((entry, idx) => {
-    const gap = entry.amount === cheapest ? 0 : ((entry.amount - cheapest) / cheapest) * 100;
+    const gap = entry.amount === cheapest && cheapest > 0 ? 0 : cheapest > 0 ? ((entry.amount - cheapest) / cheapest) * 100 : 0;
+    const isEmptyAmount = entry.amount === 0;
     return `
-      <tr style="border-bottom:1px solid var(--grey-300)">
+      <tr style="border-bottom:1px solid var(--grey-300);background:${isEmptyAmount ? '#F5F5F5' : 'white'}">
         <td style="padding:10px;border:1px solid var(--grey-300)">${idx + 1}</td>
         <td style="padding:10px;border:1px solid var(--grey-300)">
-          <input type="text" value="${escapeHtml(entry.company_name)}" class="form-input" style="width:100%;padding:6px" onchange="updateEntry('${entry.id}', 'company_name', this.value)">
+          <input type="text" value="${escapeHtml(entry.company_name)}" class="form-input" style="width:100%;padding:6px" onchange="updateEntry('${entry.id}', 'company_name', this.value)" ${currentPhase !== 'OI' ? 'readonly' : ''}>
         </td>
         <td style="padding:10px;border:1px solid var(--grey-300)">
-          <input type="number" value="${entry.amount}" class="form-input" style="width:100%;padding:6px" onchange="updateEntry('${entry.id}', 'amount', this.value)">
+          <input type="number" value="${entry.amount}" class="form-input" style="width:100%;padding:6px${isEmptyAmount ? ';background:#FFFACD' : ''}" onchange="updateEntry('${entry.id}', 'amount', this.value)" placeholder="Entrez le montant">
         </td>
         <td style="padding:10px;border:1px solid var(--grey-300);text-align:center">
-          <button onclick="deleteEntry('${entry.id}')" style="padding:4px 8px;background:#F44336;color:white;border:none;border-radius:3px;cursor:pointer;font-size:11px">
+          <button onclick="deleteEntry('${entry.id}')" style="padding:4px 8px;background:#F44336;color:white;border:none;border-radius:3px;cursor:pointer;font-size:11px" title="Supprimer cette entreprise">
             <span class="glyphicon glyphicon-trash"></span>
           </button>
         </td>
@@ -1829,30 +1890,84 @@ async function calculatePhase() {
     
     const results = await response.json();
     
-    // Display results
+    // Display results with color coding
     const resultsSection = document.getElementById("resultsSection");
     const keptDiv = document.getElementById("resultKept");
     const discardedDiv = document.getElementById("resultDiscarded");
     const nextPhaseContainer = document.getElementById("nextPhaseContainer");
     
-    keptDiv.innerHTML = (results.kept || []).map(r =>
-      `<div style="padding:6px 0;border-bottom:1px solid var(--grey-300)">
-        <strong>${escapeHtml(r.company)}</strong> - ${r.amount.toFixed(2)} (écart: ${r.gap.toFixed(2)}%)
-      </div>`
-    ).join('');
-    
-    if (results.kept.length === 0) {
-      keptDiv.innerHTML = '<div style="padding:6px;color:var(--grey-600)">Aucune</div>';
+    // Helper function to get reason why company is kept
+    function getKeptReason(company, phaseResults, phase) {
+      if (phase === "OI") {
+        // Top 3 or 4th with gap < 15%
+        const idx = phaseResults.results.findIndex(r => r.company === company.company);
+        if (idx < 3) return "Top 3";
+        if (company.gap < 15) return `Écart < 15% (${company.gap.toFixed(1)}%)`;
+      } else if (phase === "OA1") {
+        if (company.gap === 0) return "Moins disante OA1";
+        if (company.gap > 0 && company.gap < 5) return `Écart < 5% (${company.gap.toFixed(1)}%)`;
+        // Check if this is OI cheapest
+        return "Maintenue d'OI (moins disante)";
+      } else if (phase === "OA2") {
+        return "Relancer pour OA3 (FINAL moins disante)";
+      }
+      return "";
     }
     
-    discardedDiv.innerHTML = (results.discarded || []).map(r =>
-      `<div style="padding:6px 0;border-bottom:1px solid var(--grey-300)">
-        <strong>${escapeHtml(r.company)}</strong> - ${r.amount.toFixed(2)} (écart: ${r.gap.toFixed(2)}%)
-      </div>`
-    ).join('');
+    // Helper function to get reason why company is discarded
+    function getDiscardedReason(company, phaseResults, phase) {
+      if (phase === "OI") {
+        return "Écart > 15% (classement 5+)";
+      } else if (phase === "OA1") {
+        return `Écart > 5% (${company.gap.toFixed(1)}%) - Non compétitif`;
+      } else if (phase === "OA2") {
+        return "Non retenu (pas le prix minimum)";
+      }
+      return "Écartée";
+    }
+    
+    keptDiv.innerHTML = (results.kept || []).map(r => {
+      const reason = getKeptReason(r, results, currentPhase);
+      return `
+        <div style="padding:10px;margin:4px 0;background:#E8F5E9;border-left:4px solid #4CAF50;border-radius:3px">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div style="flex:1">
+              <strong style="color:#2E7D32">${escapeHtml(r.company)}</strong>
+              <div style="font-size:11px;color:#558B2F;margin-top:2px">${reason}</div>
+            </div>
+            <div style="text-align:right;margin-left:10px">
+              <div style="font-weight:600;color:#2E7D32">${r.amount.toFixed(2)}</div>
+              <div style="font-size:11px;color:#558B2F">écart: ${r.gap.toFixed(1)}%</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    if (results.kept.length === 0) {
+      keptDiv.innerHTML = '<div style="padding:10px;color:var(--grey-600);background:var(--grey-50);border-radius:3px;text-align:center">Aucune</div>';
+    }
+    
+    discardedDiv.innerHTML = (results.discarded || []).map(r => {
+      const reason = getDiscardedReason(r, results, currentPhase);
+      return `
+        <div style="padding:10px;margin:4px 0;background:#FFEBEE;border-left:4px solid #F44336;border-radius:3px">
+          <div style="display:flex;justify-content:space-between;align-items:start">
+            <div style="flex:1">
+              <strong style="color:#C62828">${escapeHtml(r.company)}</strong>
+              <div style="font-size:11px;color:#D32F2F;margin-top:2px">${reason}</div>
+            </div>
+            <div style="text-align:right;margin-left:10px">
+              <div style="font-weight:600;color:#C62828">${r.amount.toFixed(2)}</div>
+              <div style="font-size:11px;color:#D32F2F">écart: ${r.gap.toFixed(1)}%</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
     
     if (results.discarded.length === 0) {
-      discardedDiv.innerHTML = '<div style="padding:6px;color:var(--grey-600)">Aucune</div>';
+      discardedDiv.innerHTML = '<div style="padding:10px;color:var(--grey-600);background:var(--grey-50);border-radius:3px;text-align:center">Aucune</div>';
     }
     
     // Show next phase button if not in OA2
