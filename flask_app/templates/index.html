@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+{% block title %}Tableau de Bord — Suivi PR{% endblock %}
+
+{% block content %}
+<!-- ═══════════════════ DASHBOARD VIEW ═══════════════════════════════════ -->
+<div id="dashboardView" class="view active-view">
+
+  <!-- Page header -->
+  <div class="page-header-custom">
+    <div>
+      <h2 class="page-title">
+        <span class="glyphicon glyphicon-dashboard"></span>
+        Tableau de Bord
+      </h2>
+      <p class="page-subtitle">Vue d'ensemble des demandes d'achat</p>
+    </div>
+    <div class="header-date" id="headerDate"></div>
+  </div>
+
+  <!-- ── ALERT BANNER ───────────────────────────────────────────────────── -->
+  <div class="alert-banner" id="alertBanner" style="display:none">
+    <span class="alert-banner-icon">
+      <span class="glyphicon glyphicon-bell"></span>
+    </span>
+    <div id="alertBannerMsg" class="alert-banner-items"></div>
+    <a href="#alertsPanel" class="alert-banner-link">
+      Voir le détail <span class="glyphicon glyphicon-chevron-right"></span>
+    </a>
+  </div>
+
+  <!-- ── KPI CARDS ────────────────────────────────────────────────────────── -->
+  <div class="kpi-grid">
+    <div class="kpi-card kpi-total">
+      <div class="kpi-icon"><span class="glyphicon glyphicon-folder-open"></span></div>
+      <div class="kpi-body">
+        <div class="kpi-value" data-target="{{ stats.total }}" id="kpiTotal">0</div>
+        <div class="kpi-label">Total PR</div>
+      </div>
+    </div>
+    <div class="kpi-card kpi-progress">
+      <div class="kpi-icon"><span class="glyphicon glyphicon-stats"></span></div>
+      <div class="kpi-body">
+        <div class="kpi-value" data-target="{{ stats.avg_prog }}" id="kpiAvg">0</div>
+        <div class="kpi-label">Progression Moy. %</div>
+      </div>
+    </div>
+    <div class="kpi-card kpi-cloturee">
+      <div class="kpi-icon"><span class="glyphicon glyphicon-ok-circle"></span></div>
+      <div class="kpi-body">
+        <div class="kpi-value" data-target="{{ stats.cloturee }}" id="kpiCloturee">0</div>
+        <div class="kpi-label">Clôturées</div>
+      </div>
+    </div>
+    <div class="kpi-card kpi-encours">
+      <div class="kpi-icon"><span class="glyphicon glyphicon-refresh"></span></div>
+      <div class="kpi-body">
+        <div class="kpi-value" data-target="{{ stats.en_cours }}" id="kpiEnCours">0</div>
+        <div class="kpi-label">En Cours</div>
+      </div>
+    </div>
+    <div class="kpi-card kpi-blockee">
+      <div class="kpi-icon"><span class="glyphicon glyphicon-ban-circle"></span></div>
+      <div class="kpi-body">
+        <div class="kpi-value" data-target="{{ stats.blockee }}" id="kpiBlockee">0</div>
+        <div class="kpi-label">Bloquées</div>
+      </div>
+    </div>
+    <div class="kpi-card kpi-annulee">
+      <div class="kpi-icon"><span class="glyphicon glyphicon-remove-circle"></span></div>
+      <div class="kpi-body">
+        <div class="kpi-value" data-target="{{ stats.annulee }}" id="kpiAnnulee">0</div>
+        <div class="kpi-label">Annulées</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW ────────────────────────────────────────────────────────── -->
+  <div class="charts-row">
+    <!-- Donut -->
+    <div class="chart-card donut-card">
+      <div class="chart-card-header">
+        <span class="glyphicon glyphicon-record"></span>
+        Répartition par Statut
+      </div>
+      <div class="donut-wrapper">
+        <canvas id="donutChart"></canvas>
+        <div class="donut-center">
+          <div class="donut-total" id="donutTotal">{{ stats.total }}</div>
+          <div class="donut-label">Total</div>
+        </div>
+      </div>
+      <div class="donut-legend" id="donutLegend"></div>
+    </div>
+
+    <!-- Status bars -->
+    <div class="chart-card bars-card">
+      <div class="chart-card-header">
+        <span class="glyphicon glyphicon-equalizer"></span>
+        Volume par Statut
+      </div>
+      <div class="status-bars" id="statusBars"></div>
+    </div>
+
+    <!-- Recent activity -->
+    <div class="chart-card activity-card">
+      <div class="chart-card-header">
+        <span class="glyphicon glyphicon-time"></span>
+        Activité Récente
+      </div>
+      <div id="recentActivity" class="activity-list">
+        <div class="no-activity">
+          <span class="glyphicon glyphicon-inbox"></span>
+          <p>Aucune PR pour le moment</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ALERTS PANEL ───────────────────────────────────────────────────── -->
+  <div class="alerts-panel" id="alertsPanel" style="display:none">
+    <div class="alerts-panel-header">
+      <span class="glyphicon glyphicon-alert"></span>
+      Alertes Délais — Étapes en Retard ou à Risque
+    </div>
+    <div id="alertsList" class="alerts-list"></div>
+  </div>
+
+  <!-- ── KPI DÉLAI DE TRAITEMENT ───────────────────────────────────────────── -->
+  <div class="kpi-processing-section">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;justify-content:space-between">
+      <h3 style="margin:0;display:flex;align-items:center;gap:8px">
+        <span class="glyphicon glyphicon-time"></span>
+        Délai de Traitement
+      </h3>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <input type="text" id="kpiSearchInput" class="kpi-search-input" placeholder="Rechercher..." style="padding:6px 8px;border:1px solid #D0D0D0;border-radius:4px;font-size:11px;width:100px">
+        <select id="kpiCategoryFilter" class="kpi-filter-select" style="padding:6px 8px;border:1px solid #D0D0D0;border-radius:4px;font-size:11px">
+          <option value="">Tous les types</option>
+          <option value="ED">ED</option>
+          <option value="CR">CR</option>
+          <option value="COU">COU</option>
+          <option value="REG">REG</option>
+          <option value="Hybride">Hybride</option>
+        </select>
+        <button id="btnExportKPI" class="btn-export-kpi" title="Exporter le rapport KPI en Excel" style="padding:6px 10px;font-size:11px">
+          <span class="glyphicon glyphicon-download-alt"></span> Exporter
+        </button>
+        <button id="btnUpdateKPI" class="btn-update-kpi" title="Recalculer tous les délais" style="padding:6px 10px;font-size:11px">
+          <span class="glyphicon glyphicon-refresh"></span> MAJ
+        </button>
+      </div>
+    </div>
+    
+    <div class="kpi-table-wrapper">
+      <table class="kpi-processing-table" id="kpiTable">
+        <thead>
+          <tr>
+            <th>PR #</th>
+            <th>Titre</th>
+            <th class="text-center">Type</th>
+            <th class="text-center">Délai (semaines)</th>
+            <th>Jours à déduire</th>
+            <th>Statut</th>
+            <th>Indicateur</th>
+          </tr>
+        </thead>
+        <tbody id="kpiTableBody">
+          <tr><td colspan="7" style="text-align:center;padding:20px;color:#999">Chargement...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /#dashboardView -->
+
+<!-- ═══════════════════ CHECKLIST VIEW ═════════════════════════════════����� -->
+<div id="checklistView" class="view">
+  <div class="page-header-custom">
+    <div>
+      <button class="btn-back" id="btnBackToDash">
+        <span class="glyphicon glyphicon-chevron-left"></span> Retour
+      </button>
+      <h2 class="page-title" id="checklistTitle">Checklist</h2>
+      <p class="page-subtitle" id="checklistSubtitle"></p>
+    </div>
+    <div class="checklist-header-right">
+      <button class="btn-pr-docs" id="btnPRDocs" onclick="openPRDocsModal()">
+        <span class="glyphicon glyphicon-folder-open"></span>
+        Documents de la PR
+      </button>
+      <div class="progress-ring-wrapper">
+        <svg class="progress-ring" viewBox="0 0 64 64">
+          <circle class="ring-bg" cx="32" cy="32" r="28" />
+          <circle class="ring-fill" id="ringFill" cx="32" cy="32" r="28"
+                  stroke-dasharray="175.93" stroke-dashoffset="175.93"/>
+        </svg>
+        <div class="ring-label" id="ringLabel">0%</div>
+      </div>
+      <div class="checklist-meta" id="checklistMeta"></div>
+    </div>
+  </div>
+  <div class="progress-bar-wrapper">
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progressBarFill" style="width:0%"></div>
+    </div>
+    <span class="progress-pct" id="progressPct">0%</span>
+  </div>
+  <div id="processingTimeInfo" style="display:none;margin:12px 0;padding:12px;background:#FFF3CD;border:1px solid #FFE69C;border-radius:6px;color:#856404;font-size:13px">
+    <span class="glyphicon glyphicon-time"></span>
+    <span id="processingTimeText"></span>
+  </div>
+  <div id="checklistContainer" class="checklist-container"></div>
+</div>
+
+<!-- ═══════════════════ DOCUMENTS MODAL ═════════════════════════════════ -->
+<div id="documentsModal" class="modal" style="display:none">
+  <div class="modal-content" style="max-width:600px">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <span class="glyphicon glyphicon-folder-open"></span>
+        Gestion des Documents
+      </h3>
+      <button class="modal-close" onclick="closeModal('documentsModal')">&times;</button>
+    </div>
+    
+    <div class="modal-body">
+      <!-- Add Document Form -->
+      <div class="document-form">
+        <h4 style="margin-top:0;color:#2C3E50">Ajouter un Document</h4>
+        
+        <div style="margin-bottom:12px">
+          <label class="form-label">Nom du document</label>
+          <input type="text" id="docName" class="form-input" placeholder="Ex: Rapport de binome, PV1, etc.">
+        </div>
+        
+        <div style="display:flex;gap:12px;margin-bottom:12px">
+          <div style="flex:1">
+            <label class="form-label">Statut</label>
+            <input type="text" id="docStatus" class="form-input" placeholder="Ex: En attente, Reçu, etc.">
+          </div>
+          <div style="flex:0 0 auto">
+            <label class="form-label">Couleur</label>
+            <div id="docColorPicker" style="display:flex;gap:6px;margin-top:4px">
+              <button type="button" class="color-btn" style="background:#FF9800;border:2px solid #FF9800" onclick="selectDocColor('#FF9800', this)" title="Orange"></button>
+              <button type="button" class="color-btn" style="background:#2196F3;border:2px solid #2196F3" onclick="selectDocColor('#2196F3', this)" title="Bleu"></button>
+              <button type="button" class="color-btn" style="background:#C2185B;border:2px solid #C2185B" onclick="selectDocColor('#C2185B', this)" title="Rose Foncé"></button>
+              <button type="button" class="color-btn" style="background:#F44336;border:2px solid #F44336" onclick="selectDocColor('#F44336', this)" title="Rouge"></button>
+              <button type="button" class="color-btn" style="background:#4CAF50;border:2px solid #4CAF50" onclick="selectDocColor('#4CAF50', this)" title="Vert"></button>
+            </div>
+            <input type="hidden" id="docColor" value="#2196F3">
+          </div>
+        </div>
+        
+        <button class="btn-primary" onclick="addDocument()" style="width:100%;padding:10px">
+          <span class="glyphicon glyphicon-plus"></span> Ajouter
+        </button>
+      </div>
+      
+      <hr style="margin:20px 0;border:none;border-top:1px solid #E0E0E0">
+      
+      <!-- Documents List -->
+      <div style="max-height:400px;overflow-y:auto">
+        <h4 style="margin-top:0;color:#2C3E50">Documents en Attente</h4>
+        <div id="documentsList" class="documents-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ HYBRID CATEGORY EDIT MODAL ════════════════════════════ -->
+<div id="hybridCategoryEditModal" class="modal" style="display:none">
+  <div class="modal-content" style="max-width:400px">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <span class="glyphicon glyphicon-pencil"></span>
+        Modifier le nom de la catégorie
+      </h3>
+      <button class="modal-close" onclick="closeModal('hybridCategoryEditModal')">&times;</button>
+    </div>
+    
+    <div class="modal-body">
+      <div style="margin-bottom:16px">
+        <label class="form-label">Nom de la catégorie (ex: Avenant, Régularisation)</label>
+        <input type="text" id="hybridCategoryNameInput" class="form-input">
+      </div>
+      
+      <div style="display:flex;gap:8px">
+        <button class="btn-primary" onclick="saveHybridCategoryName()" style="flex:1;padding:10px">
+          <span class="glyphicon glyphicon-ok"></span> Enregistrer
+        </button>
+        <button style="flex:1;padding:10px;background:#E0E0E0;color:#333;border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="closeModal('hybridCategoryEditModal')">
+          Annuler
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ HYBRID ADD STEP MODAL ════════════════════════════════ -->
+<div id="hybridAddStepModal" class="modal" style="display:none">
+  <div class="modal-content" style="max-width:500px">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <span class="glyphicon glyphicon-plus"></span>
+        Ajouter une étape personnalisée
+      </h3>
+      <button class="modal-close" onclick="closeModal('hybridAddStepModal')">&times;</button>
+    </div>
+    
+    <div class="modal-body">
+      <div style="margin-bottom:12px">
+        <label class="form-label">Titre de l'étape</label>
+        <input type="text" id="hybridStepTitle" class="form-input" placeholder="Ex: Signature du contrat">
+      </div>
+      
+      <div style="margin-bottom:16px">
+        <label class="form-label">Description</label>
+        <textarea id="hybridStepDesc" class="form-input" placeholder="Description optionnelle" rows="3"></textarea>
+      </div>
+      
+      <div style="display:flex;gap:8px">
+        <button class="btn-primary" onclick="saveNewHybridStep()" style="flex:1;padding:10px">
+          <span class="glyphicon glyphicon-ok"></span> Ajouter
+        </button>
+        <button style="flex:1;padding:10px;background:#E0E0E0;color:#333;border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="closeModal('hybridAddStepModal')">
+          Annuler
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ STEP EDIT MODAL ══════════════════════════════════ -->
+<div id="stepEditModal" class="modal" style="display:none">
+  <div class="modal-content" style="max-width:500px">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <span class="glyphicon glyphicon-pencil"></span>
+        Modifier l'étape
+      </h3>
+      <button class="modal-close" onclick="closeModal('stepEditModal')">&times;</button>
+    </div>
+    
+    <div class="modal-body">
+      <div style="margin-bottom:12px">
+        <label class="form-label">Titre de l'étape</label>
+        <input type="text" id="editStepTitle" class="form-input">
+      </div>
+      
+      <div style="margin-bottom:16px">
+        <label class="form-label">Description</label>
+        <textarea id="editStepDesc" class="form-input" placeholder="Description optionnelle" rows="3"></textarea>
+      </div>
+      
+      <div style="display:flex;gap:8px">
+        <button class="btn-primary" onclick="saveStepEdit()" style="flex:1;padding:10px">
+          <span class="glyphicon glyphicon-ok"></span> Enregistrer
+        </button>
+        <button style="flex:1;padding:10px;background:#E0E0E0;color:#333;border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="closeModal('stepEditModal')">
+          Annuler
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════���════════════ DOCUMENT EDIT MODAL ════════════════════════════════ -->
+<div id="documentEditModal" class="modal" style="display:none">
+  <div class="modal-content" style="max-width:400px">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <span class="glyphicon glyphicon-pencil"></span>
+        Modifier le Document
+      </h3>
+      <button class="modal-close" onclick="closeModal('documentEditModal')">&times;</button>
+    </div>
+    
+    <div class="modal-body">
+      <div style="margin-bottom:12px">
+        <label class="form-label">Nom du document</label>
+        <input type="text" id="editDocName" class="form-input">
+      </div>
+      
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <div style="flex:1">
+          <label class="form-label">Statut</label>
+          <input type="text" id="editDocStatus" class="form-input">
+        </div>
+        <div style="flex:0 0 auto">
+          <label class="form-label">Couleur</label>
+          <div id="editDocColorPicker" style="display:flex;gap:6px;margin-top:4px">
+            <button type="button" class="color-btn" style="background:#FF9800;border:2px solid #FF9800" onclick="selectDocColor('#FF9800', this, 'edit')" title="Orange"></button>
+            <button type="button" class="color-btn" style="background:#2196F3;border:2px solid #2196F3" onclick="selectDocColor('#2196F3', this, 'edit')" title="Bleu"></button>
+            <button type="button" class="color-btn" style="background:#C2185B;border:2px solid #C2185B" onclick="selectDocColor('#C2185B', this, 'edit')" title="Rose Foncé"></button>
+            <button type="button" class="color-btn" style="background:#F44336;border:2px solid #F44336" onclick="selectDocColor('#F44336', this, 'edit')" title="Rouge"></button>
+            <button type="button" class="color-btn" style="background:#4CAF50;border:2px solid #4CAF50" onclick="selectDocColor('#4CAF50', this, 'edit')" title="Vert"></button>
+          </div>
+          <input type="hidden" id="editDocColor" value="#2196F3">
+        </div>
+      </div>
+      
+      <div style="display:flex;gap:8px;margin-top:20px">
+        <button class="btn-primary" onclick="saveDocumentEdit()" style="flex:1;padding:10px">
+          <span class="glyphicon glyphicon-ok"></span> Enregistrer
+        </button>
+        <button style="flex:1;padding:10px;background:#E0E0E0;color:#333;border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="closeModal('documentEditModal')">
+          Annuler
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ PR DOCUMENT CHECKLIST MODAL ═══════════════════════ -->
+<div id="prDocsModal" class="modal" style="display:none">
+  <div class="modal-content pr-docs-modal-content">
+    <div class="modal-header pr-docs-modal-header">
+      <div class="pr-docs-header-left">
+        <span class="glyphicon glyphicon-folder-open pr-docs-header-icon"></span>
+        <div>
+          <h3 class="modal-title" style="margin:0">Documents de la PR</h3>
+          <p class="pr-docs-header-sub" id="prDocsSubtitle"></p>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal('prDocsModal')">&times;</button>
+    </div>
+
+    <div class="modal-body pr-docs-modal-body">
+      <!-- Progress bar -->
+      <div class="pr-docs-progress-row">
+        <div class="pr-docs-progress-track">
+          <div class="pr-docs-progress-fill" id="prDocsProgressFill" style="width:0%"></div>
+        </div>
+        <span class="pr-docs-progress-label" id="prDocsProgressLabel">0 / 0</span>
+      </div>
+
+      <!-- Document list -->
+      <div id="prDocsList" class="pr-docs-list"></div>
+
+      <!-- Add document (Hybride only) -->
+      <div id="prDocsAddSection" class="pr-docs-add-section" style="display:none">
+        <hr style="margin:16px 0;border:none;border-top:1px solid var(--grey-300)">
+        <h4 style="margin:0 0 10px 0;font-size:13px;color:var(--grey-800);font-weight:600">Ajouter un document</h4>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="prDocNewName" class="form-input" placeholder="Nom du document..." style="flex:1">
+          <button class="btn-primary" onclick="addPRDoc()" style="padding:8px 14px;white-space:nowrap">
+            <span class="glyphicon glyphicon-plus"></span> Ajouter
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PR Doc inline edit modal -->
+<div id="prDocEditModal" class="modal" style="display:none">
+  <div class="modal-content" style="max-width:400px">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <span class="glyphicon glyphicon-pencil"></span>
+        Modifier le document
+      </h3>
+      <button class="modal-close" onclick="closeModal('prDocEditModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:16px">
+        <label class="form-label">Nom du document</label>
+        <input type="text" id="prDocEditName" class="form-input">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-primary" onclick="savePRDocEdit()" style="flex:1;padding:10px">
+          <span class="glyphicon glyphicon-ok"></span> Enregistrer
+        </button>
+        <button style="flex:1;padding:10px;background:var(--grey-200);color:var(--grey-900);border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="closeModal('prDocEditModal')">
+          Annuler
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
